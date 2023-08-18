@@ -12,10 +12,6 @@ permissions:
 jobs:
   build-image:
     runs-on: ubuntu-latest
-<<<<<<< HEAD
-=======
-    needs: deploy
->>>>>>> eaad46a (fix: modify docker image CICD)
     # run unless event type is pull_request
     if: github.event_name != 'pull_request'
     steps:
@@ -34,10 +30,6 @@ jobs:
         with:
           context: .
           file: ./docker/base/Dockerfile
-<<<<<<< HEAD
           platforms: linux/amd64
-=======
-          platforms: linux/amd64,linux/arm64
->>>>>>> eaad46a (fix: modify docker image CICD)
           push: true
           tags: eosphorosai/dbgpt:${{ github.ref_name }},eosphorosai/dbgpt:latest
