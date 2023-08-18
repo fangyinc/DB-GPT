@@ -27,7 +27,7 @@ WORKDIR /app
 
 RUN pip3 install --upgrade pip -i $PIP_INDEX_URL \
     && pip3 install -i $PIP_INDEX_URL . \
-    && pip3 install -i $PIP_INDEX_URL ".[llama_cpp]" \
+    # && pip3 install -i $PIP_INDEX_URL ".[llama_cpp]" \
     && (if [ "${LANGUAGE}" = "zh" ]; \
         # language is zh, download zh_core_web_sm from github
         then wget https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.5.0/zh_core_web_sm-3.5.0-py3-none-any.whl -O /tmp/zh_core_web_sm-3.5.0-py3-none-any.whl \
