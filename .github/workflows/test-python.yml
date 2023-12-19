@@ -51,6 +51,7 @@ jobs:
           pytest dbgpt --cov=dbgpt --cov-report=xml:coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml --cov-report=html:htmlcov-${{ matrix.python-version }}-${{ matrix.os }} --junitxml=pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml
 
       - name: Generate coverage report summary
+        if: matrix.os == 'ubuntu-latest'
         id: cov-report
         run: |
           coverage_file="coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml"
@@ -60,9 +61,11 @@ jobs:
             echo "$package_name line-rate: $line_rate"
           done)
           echo "Coverage Summary: $coverage_summary"
-          echo "::set-output name=summary::$coverage_summary"
+          # echo "::set-output name=summary::$coverage_summary"
+          echo "summary=$coverage_summary" >> $GITHUB_OUTPUT
 
       - name: Generate test report summary
+        if: matrix.os == 'ubuntu-latest'
         id: test-report
         run: |
           test_file="pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml"
@@ -71,10 +74,11 @@ jobs:
           skipped=$(grep -oP 'skipped="\K\d+' $test_file)
           test_summary="Total tests: $total_tests, Failures: $failures, Skipped: $skipped"
           echo "Test Summary: $test_summary"
-          echo "::set-output name=summary::$test_summary"
+          # echo "::set-output name=summary::$test_summary"
+          echo "summary=$test_summary" >> $GITHUB_OUTPUT
 
       - name: Comment PR with coverage and test report
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest'
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
