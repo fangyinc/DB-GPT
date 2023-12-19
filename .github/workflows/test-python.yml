@@ -50,6 +50,41 @@ jobs:
         run: |
           pytest dbgpt --cov=dbgpt --cov-report=xml:coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml --cov-report=html:htmlcov-${{ matrix.python-version }}-${{ matrix.os }} --junitxml=pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml
 
+      - name: Generate coverage report summary
+        id: cov-report
+        run: |
+          coverage_file="coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml"
+          # Pase the coverage file and get the line rate for each package(two level)
+          coverage_summary=$(grep -oP '<package name="\K[^"]+' $coverage_file | awk -F"." '{ if (NF == 2) print $0 }' | while read -r package_name; do
+            line_rate=$(grep -oP "<package name=\"$package_name\" line-rate=\"\K[^\"]+" $coverage_file)
+            echo "$package_name line-rate: $line_rate"
+          done)
+          echo "Coverage Summary: $coverage_summary"
+          echo "::set-output name=summary::$coverage_summary"
+
+      - name: Generate test report summary
+        id: test-report
+        run: |
+          test_file="pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml"
+          total_tests=$(grep -oP 'tests="\K\d+' $test_file)
+          failures=$(grep -oP 'failures="\K\d+' $test_file)
+          skipped=$(grep -oP 'skipped="\K\d+' $test_file)
+          test_summary="Total tests: $total_tests, Failures: $failures, Skipped: $skipped"
+          echo "Test Summary: $test_summary"
+          echo "::set-output name=summary::$test_summary"
+
+      - name: Comment PR with coverage and test report
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## Test Coverage and Report Summary
+            ${{ steps.cov-report.outputs.summary }}
+            ${{ steps.test-report.outputs.summary }}
+
+
       - name: Upload test and coverage results
         uses: actions/upload-artifact@v3
         if: always()
