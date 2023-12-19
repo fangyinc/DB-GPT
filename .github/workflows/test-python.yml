@@ -48,13 +48,15 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest dbgpt
+          pytest dbgpt --cov=dbgpt --cov-report=xml:coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml --cov-report=html:htmlcov-${{ matrix.python-version }}-${{ matrix.os }} --junitxml=pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml
 
-      - name: Upload pytest results
+      - name: Upload test and coverage results
         uses: actions/upload-artifact@v3
         if: always()
         with:
-          name: pytest-results
+          name: test-and-coverage-results-${{ matrix.python-version }}-${{ matrix.os }}
           path: |
-            **/pytest_report.xml
+            pytest_report-${{ matrix.python-version }}-${{ matrix.os }}.xml
+            coverage-${{ matrix.python-version }}-${{ matrix.os }}.xml
+            htmlcov-${{ matrix.python-version }}-${{ matrix.os }}/*
           if-no-files-found: ignore
