@@ -20,17 +20,19 @@ concurrency:
   group: ${{ github.event.number || github.run_id }}
   cancel-in-progress: true
 
-
+#permissions:
+#  contents: read
+#  pull-requests: write
+#
 jobs:
   test-python:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # TODO: Add windows-latest support
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.10", "3.11"]
-#        os: [ubuntu-latest]
-#        python-version: ["3.10"]
 
     steps:
       - uses: actions/checkout@v4
@@ -75,18 +77,16 @@ jobs:
           echo "Test Summary: $test_summary"
           echo "::set-output name=summary::$test_summary"
 
-      - name: Comment PR with coverage and test report
-        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest'
-        uses: peter-evans/create-or-update-comment@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ## Test Coverage and Report Summary
-            ${{ steps.cov-report.outputs.summary }}
-            ${{ steps.test-report.outputs.summary }}
-
-
+# TODO: Add comment on PR
+#      - name: Comment on PR
+#        if: github.event_name == 'pull_request_target' && matrix.os == 'ubuntu-latest'
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          PR_COMMENT="## Test Coverage and Report Summary\n${{ steps.cov-report.outputs.summary }}\n${{ steps.test-report.outputs.summary }}"
+#          PR_COMMENTS_URL=$(jq -r .pull_request.comments_url < "$GITHUB_EVENT_PATH")
+#          curl -s -S -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -X POST --data "{ \"body\": \"$PR_COMMENT\" }" "$PR_COMMENTS_URL"
+#
       - name: Upload test and coverage results
         uses: actions/upload-artifact@v3
         if: always()

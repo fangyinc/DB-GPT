@@ -1,22 +1,21 @@
-from typing import Dict, Optional
-from contextvars import ContextVar
-from functools import wraps
 import asyncio
 import inspect
 import logging
+from contextvars import ContextVar
+from functools import wraps
+from typing import Any, AsyncIterator, Dict, Optional
 
-
-from dbgpt.component import SystemApp, ComponentType
+from dbgpt.component import ComponentType, SystemApp
+from dbgpt.util.module_utils import import_from_checked_string
 from dbgpt.util.tracer.base import (
-    SpanType,
     Span,
-    Tracer,
     SpanStorage,
     SpanStorageType,
+    SpanType,
+    Tracer,
     TracerContext,
 )
 from dbgpt.util.tracer.span_storage import MemorySpanStorage
-from dbgpt.util.module_utils import import_from_checked_string
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ class DefaultTracer(Tracer):
         self._span_storage_type = span_storage_type
 
     def append_span(self, span: Span):
-        self._get_current_storage().append_span(span)
+        self._get_current_storage().append_span(span.copy())
 
     def start_span(
         self,
@@ -47,9 +46,12 @@ class DefaultTracer(Tracer):
         metadata: Dict = None,
     ) -> Span:
         trace_id = (
-            self._new_uuid() if parent_span_id is None else parent_span_id.split(":")[0]
+            self._new_random_trace_id()
+            if parent_span_id is None
+            else parent_span_id.split(":")[0]
         )
-        span_id = f"{trace_id}:{self._new_uuid()}"
+        span_id = f"{trace_id}:{self._new_random_span_id()}"
+
         span = Span(
             trace_id,
             span_id,
@@ -131,9 +133,13 @@ class TracerManager:
         """
         tracer = self._get_tracer()
         if not tracer:
-            return Span("empty_span", "empty_span")
+            return Span(
+                "empty_span", "empty_span", span_type=span_type, metadata=metadata
+            )
         if not parent_span_id:
             parent_span_id = self.get_current_span_id()
+        if not span_type and parent_span_id:
+            span_type = self._get_current_span_type()
         return tracer.start_span(
             operation_name, parent_span_id, span_type=span_type, metadata=metadata
         )
@@ -156,6 +162,37 @@ class TracerManager:
             return current_span.span_id
         ctx = self._trace_context_var.get()
         return ctx.span_id if ctx else None
+
+    def _get_current_span_type(self) -> Optional[SpanType]:
+        current_span = self.get_current_span()
+        return current_span.span_type if current_span else None
+
+    def _parse_span_id(self, body: Any) -> Optional[str]:
+        from .base import _parse_span_id
+
+        return _parse_span_id(body)
+
+    def wrapper_async_stream(
+        self,
+        generator: AsyncIterator[Any],
+        operation_name: str,
+        parent_span_id: str = None,
+        span_type: SpanType = None,
+        metadata: Dict = None,
+    ) -> AsyncIterator[Any]:
+        """Wrap an async generator with a span"""
+
+        parent_span_id = parent_span_id or self.get_current_span_id()
+
+        async def wrapper():
+            span = self.start_span(operation_name, parent_span_id, span_type, metadata)
+            try:
+                async for item in generator:
+                    yield item
+            finally:
+                span.end()
+
+        return wrapper()
 
 
 root_tracer: TracerManager = TracerManager()
@@ -198,14 +235,23 @@ def _parse_operation_name(func, *args):
 
 
 def initialize_tracer(
-    system_app: SystemApp,
     tracer_filename: str,
-    root_operation_name: str = "DB-GPT-Web-Entry",
-    tracer_storage_cls: str = None,
+    root_operation_name: str = "DB-GPT-Webserver",
+    system_app: Optional[SystemApp] = None,
+    tracer_storage_cls: Optional[str] = None,
+    create_system_app: bool = False,
+    enable_open_telemetry: bool = False,
+    otlp_endpoint: Optional[str] = None,
+    otlp_insecure: Optional[bool] = None,
+    otlp_timeout: Optional[int] = None,
 ):
+    """Initialize the tracer with the given filename and system app."""
+    from dbgpt.util.tracer.span_storage import FileSpanStorage, SpanStorageContainer
+
+    if not system_app and create_system_app:
+        system_app = SystemApp()
     if not system_app:
         return
-    from dbgpt.util.tracer.span_storage import FileSpanStorage, SpanStorageContainer
 
     trace_context_var = ContextVar(
         "trace_context",
@@ -215,6 +261,17 @@ def initialize_tracer(
 
     storage_container = SpanStorageContainer(system_app)
     storage_container.append_storage(FileSpanStorage(tracer_filename))
+    if enable_open_telemetry:
+        from dbgpt.util.tracer.opentelemetry import OpenTelemetrySpanStorage
+
+        storage_container.append_storage(
+            OpenTelemetrySpanStorage(
+                service_name=root_operation_name,
+                otlp_endpoint=otlp_endpoint,
+                otlp_insecure=otlp_insecure,
+                otlp_timeout=otlp_timeout,
+            )
+        )
 
     if tracer_storage_cls:
         logger.info(f"Begin parse storage class {tracer_storage_cls}")

@@ -1,10 +1,15 @@
+"""The interface for serializing."""
+
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Type, Dict
+from typing import Dict, Optional, Type
 
 
 class Serializable(ABC):
-    serializer: "Serializer" = None
+    """The serializable abstract class."""
+
+    _serializer: Optional["Serializer"] = None
 
     @abstractmethod
     def to_dict(self) -> Dict:
@@ -16,11 +21,12 @@ class Serializable(ABC):
         Returns:
             bytes: The byte array after serialization
         """
-        if self.serializer is None:
+        if self._serializer is None:
             raise ValueError(
-                "Serializer is not set. Please set the serializer before serialization."
+                "Serializer is not set. Please set the serializer before "
+                "serialization."
             )
-        return self.serializer.serialize(self)
+        return self._serializer.serialize(self)
 
     def set_serializer(self, serializer: "Serializer") -> None:
         """Set the serializer for current serializable object.
@@ -28,7 +34,7 @@ class Serializable(ABC):
         Args:
             serializer (Serializer): The serializer to set
         """
-        self.serializer = serializer
+        self._serializer = serializer
 
 
 class Serializer(ABC):

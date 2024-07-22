@@ -1,8 +1,8 @@
 import argparse
 import os
-from dataclasses import dataclass, fields, MISSING, asdict, field, is_dataclass
-from typing import Any, List, Optional, Type, Union, Callable, Dict, TYPE_CHECKING
 from collections import OrderedDict
+from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type, Union
 
 if TYPE_CHECKING:
     from dbgpt._private.pydantic import BaseModel
@@ -12,14 +12,14 @@ MISSING_DEFAULT_VALUE = "__MISSING_DEFAULT_VALUE__"
 
 @dataclass
 class ParameterDescription:
-    param_class: str
-    param_name: str
-    param_type: str
-    default_value: Optional[Any]
-    description: str
-    required: Optional[bool]
-    valid_values: Optional[List[Any]]
-    ext_metadata: Dict
+    required: bool = False
+    param_class: Optional[str] = None
+    param_name: Optional[str] = None
+    param_type: Optional[str] = None
+    description: Optional[str] = None
+    default_value: Optional[Any] = None
+    valid_values: Optional[List[Any]] = None
+    ext_metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -104,6 +104,102 @@ class BaseParameters:
         """
         return _dict_to_command_args(asdict(self), args_prefix=args_prefix)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BaseServerParameters(BaseParameters):
+    host: Optional[str] = field(
+        default="0.0.0.0", metadata={"help": "The host IP address to bind to."}
+    )
+    port: Optional[int] = field(
+        default=None, metadata={"help": "The port number to bind to."}
+    )
+    daemon: Optional[bool] = field(
+        default=False, metadata={"help": "Run the server as a daemon."}
+    )
+    log_level: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Logging level",
+            "valid_values": [
+                "FATAL",
+                "ERROR",
+                "WARNING",
+                "WARNING",
+                "INFO",
+                "DEBUG",
+                "NOTSET",
+            ],
+        },
+    )
+    log_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The filename to store log",
+        },
+    )
+    tracer_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The filename to store tracer span records",
+        },
+    )
+    tracer_to_open_telemetry: Optional[bool] = field(
+        default=os.getenv("TRACER_TO_OPEN_TELEMETRY", "False").lower() == "true",
+        metadata={
+            "help": "Whether send tracer span records to OpenTelemetry",
+        },
+    )
+    otel_exporter_otlp_traces_endpoint: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` target to which the span "
+            "exporter is going to send spans. The endpoint MUST be a valid URL host, "
+            "and MAY contain a scheme (http or https), port and path. A scheme of https"
+            " indicates a secure connection and takes precedence over this "
+            "configuration setting.",
+        },
+    )
+    otel_exporter_otlp_traces_insecure: Optional[bool] = field(
+        default=None,
+        metadata={
+            "help": "OTEL_EXPORTER_OTLP_TRACES_INSECURE` represents whether to enable "
+            "client transport security for gRPC requests for spans. A scheme of https "
+            "takes precedence over the this configuration setting. Default: False"
+        },
+    )
+    otel_exporter_otlp_traces_certificate: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "`OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE` stores the path to the "
+            "certificate file for TLS credentials of gRPC client for traces. "
+            "Should only be used for a secure connection for tracing",
+        },
+    )
+    otel_exporter_otlp_traces_headers: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "`OTEL_EXPORTER_OTLP_TRACES_HEADERS` contains the key-value pairs "
+            "to be used as headers for spans associated with gRPC or HTTP requests.",
+        },
+    )
+    otel_exporter_otlp_traces_timeout: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "`OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` is the maximum time the OTLP "
+            "exporter will wait for each batch export for spans.",
+        },
+    )
+    otel_exporter_otlp_traces_compression: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "`OTEL_EXPORTER_OTLP_COMPRESSION` but only for the span exporter. "
+            "If both are present, this takes higher precedence.",
+        },
+    )
+
 
 def _get_dataclass_print_str(obj):
     class_name = obj.__class__.__name__
@@ -186,7 +282,9 @@ def _get_simple_privacy_field_value(obj, field_info):
     return "******"
 
 
-def _genenv_ignoring_key_case(env_key: str, env_prefix: str = None, default_value=None):
+def _genenv_ignoring_key_case(
+    env_key: str, env_prefix: Optional[str] = None, default_value: Optional[str] = None
+):
     """Get the value from the environment variable, ignoring the case of the key"""
     if env_prefix:
         env_key = env_prefix + env_key
@@ -196,7 +294,9 @@ def _genenv_ignoring_key_case(env_key: str, env_prefix: str = None, default_valu
 
 
 def _genenv_ignoring_key_case_with_prefixes(
-    env_key: str, env_prefixes: List[str] = None, default_value=None
+    env_key: str,
+    env_prefixes: Optional[List[str]] = None,
+    default_value: Optional[str] = None,
 ) -> str:
     if env_prefixes:
         for env_prefix in env_prefixes:
@@ -208,7 +308,7 @@ def _genenv_ignoring_key_case_with_prefixes(
 
 class EnvArgumentParser:
     @staticmethod
-    def get_env_prefix(env_key: str) -> str:
+    def get_env_prefix(env_key: str) -> Optional[str]:
         if not env_key:
             return None
         env_key = env_key.replace("-", "_")
@@ -217,14 +317,14 @@ class EnvArgumentParser:
     def parse_args_into_dataclass(
         self,
         dataclass_type: Type,
-        env_prefixes: List[str] = None,
-        command_args: List[str] = None,
+        env_prefixes: Optional[List[str]] = None,
+        command_args: Optional[List[str]] = None,
         **kwargs,
     ) -> Any:
         """Parse parameters from environment variables and command lines and populate them into data class"""
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(allow_abbrev=False)
         for field in fields(dataclass_type):
-            env_var_value = _genenv_ignoring_key_case_with_prefixes(
+            env_var_value: Any = _genenv_ignoring_key_case_with_prefixes(
                 field.name, env_prefixes
             )
             if env_var_value:
@@ -313,7 +413,8 @@ class EnvArgumentParser:
 
     @staticmethod
     def create_click_option(
-        *dataclass_types: Type, _dynamic_factory: Callable[[None], List[Type]] = None
+        *dataclass_types: Type,
+        _dynamic_factory: Optional[Callable[[], List[Type]]] = None,
     ):
         import functools
         from collections import OrderedDict
@@ -322,8 +423,9 @@ class EnvArgumentParser:
         if _dynamic_factory:
             _types = _dynamic_factory()
             if _types:
-                dataclass_types = list(_types)
+                dataclass_types = list(_types)  # type: ignore
         for dataclass_type in dataclass_types:
+            # type: ignore
             for field in fields(dataclass_type):
                 if field.name not in combined_fields:
                     combined_fields[field.name] = field
@@ -345,7 +447,8 @@ class EnvArgumentParser:
 
     @staticmethod
     def _create_raw_click_option(
-        *dataclass_types: Type, _dynamic_factory: Callable[[None], List[Type]] = None
+        *dataclass_types: Type,
+        _dynamic_factory: Optional[Callable[[], List[Type]]] = None,
     ):
         combined_fields = _merge_dataclass_types(
             *dataclass_types, _dynamic_factory=_dynamic_factory
@@ -362,7 +465,8 @@ class EnvArgumentParser:
 
     @staticmethod
     def create_argparse_option(
-        *dataclass_types: Type, _dynamic_factory: Callable[[None], List[Type]] = None
+        *dataclass_types: Type,
+        _dynamic_factory: Optional[Callable[[], List[Type]]] = None,
     ) -> argparse.ArgumentParser:
         combined_fields = _merge_dataclass_types(
             *dataclass_types, _dynamic_factory=_dynamic_factory
@@ -429,7 +533,7 @@ class EnvArgumentParser:
             return "str"
 
     @staticmethod
-    def _is_require_type(field_type: Type) -> str:
+    def _is_require_type(field_type: Type) -> bool:
         return field_type not in [Optional[int], Optional[float], Optional[bool]]
 
     @staticmethod
@@ -455,13 +559,13 @@ class EnvArgumentParser:
 
 
 def _merge_dataclass_types(
-    *dataclass_types: Type, _dynamic_factory: Callable[[None], List[Type]] = None
+    *dataclass_types: Type, _dynamic_factory: Optional[Callable[[], List[Type]]] = None
 ) -> OrderedDict:
     combined_fields = OrderedDict()
     if _dynamic_factory:
         _types = _dynamic_factory()
         if _types:
-            dataclass_types = list(_types)
+            dataclass_types = list(_types)  # type: ignore
     for dataclass_type in dataclass_types:
         for field in fields(dataclass_type):
             if field.name not in combined_fields:
@@ -511,11 +615,12 @@ def _build_parameter_class(desc: List[ParameterDescription]) -> Type:
     if not desc:
         raise ValueError("Parameter descriptions cant be empty")
     param_class_str = desc[0].param_class
+    class_name = None
     if param_class_str:
         param_class = import_from_string(param_class_str, ignore_import_error=True)
         if param_class:
             return param_class
-    module_name, _, class_name = param_class_str.rpartition(".")
+        module_name, _, class_name = param_class_str.rpartition(".")
 
     fields_dict = {}  # This will store field names and their default values or field()
     annotations = {}  # This will store the type annotations for the fields
@@ -526,25 +631,30 @@ def _build_parameter_class(desc: List[ParameterDescription]) -> Type:
         metadata["valid_values"] = d.valid_values
 
         annotations[d.param_name] = _type_str_to_python_type(
-            d.param_type
+            d.param_type  # type: ignore
         )  # Set type annotation
         fields_dict[d.param_name] = field(default=d.default_value, metadata=metadata)
 
     # Create the new class. Note the setting of __annotations__ for type hints
     new_class = type(
-        class_name, (object,), {**fields_dict, "__annotations__": annotations}
+        class_name,  # type: ignore
+        (object,),
+        {**fields_dict, "__annotations__": annotations},  # type: ignore
     )
-    result_class = dataclass(new_class)  # Make it a dataclass
+    # Make it a dataclass
+    result_class = dataclass(new_class)  # type: ignore
 
     return result_class
 
 
 def _extract_parameter_details(
     parser: argparse.ArgumentParser,
-    param_class: str = None,
-    skip_names: List[str] = None,
-    overwrite_default_values: Dict = {},
+    param_class: Optional[str] = None,
+    skip_names: Optional[List[str]] = None,
+    overwrite_default_values: Optional[Dict[str, Any]] = None,
 ) -> List[ParameterDescription]:
+    if overwrite_default_values is None:
+        overwrite_default_values = {}
     descriptions = []
 
     for action in parser._actions:
@@ -575,7 +685,9 @@ def _extract_parameter_details(
         if param_name in overwrite_default_values:
             default_value = overwrite_default_values[param_name]
         arg_type = (
-            action.type if not callable(action.type) else str(action.type.__name__)
+            action.type
+            if not callable(action.type)
+            else str(action.type.__name__)  # type: ignore
         )
         description = action.help
 
@@ -583,10 +695,10 @@ def _extract_parameter_details(
         required = action.required
 
         # extract valid values for choices, if provided
-        valid_values = action.choices if action.choices is not None else None
+        valid_values = list(action.choices) if action.choices is not None else None
 
         # set ext_metadata as an empty dict for now, can be updated later if needed
-        ext_metadata = {}
+        ext_metadata: Dict[str, Any] = {}
 
         descriptions.append(
             ParameterDescription(
@@ -621,7 +733,7 @@ def _get_dict_from_obj(obj, default_value=None) -> Optional[Dict]:
 def _get_base_model_descriptions(model_cls: "BaseModel") -> List[ParameterDescription]:
     from dbgpt._private import pydantic
 
-    version = int(pydantic.VERSION.split(".")[0])
+    version = int(pydantic.VERSION.split(".")[0])  # type: ignore
     schema = model_cls.model_json_schema() if version >= 2 else model_cls.schema()
     required_fields = set(schema.get("required", []))
     param_descs = []
@@ -661,7 +773,7 @@ def _get_base_model_descriptions(model_cls: "BaseModel") -> List[ParameterDescri
             ext_metadata = (
                 field.field_info.extra if hasattr(field.field_info, "extra") else None
             )
-        param_class = (f"{model_cls.__module__}.{model_cls.__name__}",)
+        param_class = f"{model_cls.__module__}.{model_cls.__name__}"
         param_desc = ParameterDescription(
             param_class=param_class,
             param_name=field_name,

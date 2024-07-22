@@ -5,9 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
-
 message/
-
+dbgpt/util/extensions/
 .env*
 .vscode
 .idea
@@ -64,7 +63,7 @@ coverage.xml
 .pytest_cache/
 
 # Translations
-*.mo
+# *.mo
 *.pot
 
 # Django stuff:
@@ -180,3 +179,9 @@ thirdparty
 # typescript
 *.tsbuildinfo
 /web/next-env.d.ts
+
+# Ignore awel DAG visualization files
+/examples/**/*.gv
+/examples/**/*.gv.pdf
+/i18n/locales/**/**/*_ai_translated.po
+/i18n/locales/**/**/*~

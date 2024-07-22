@@ -1,15 +1,16 @@
-from typing import Optional, List
 from functools import cache
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 
 from dbgpt.component import SystemApp
 from dbgpt.serve.core import Result
 from dbgpt.util import PaginationResult
-from .schemas import ServeRequest, ServerResponse
+
+from ..config import APP_NAME, SERVE_APP_NAME, SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..service.service import Service
-from ..config import APP_NAME, SERVE_APP_NAME, ServeConfig, SERVE_SERVICE_COMPONENT_NAME
+from .schemas import ServeRequest, ServerResponse
 
 router = APIRouter()
 
@@ -43,6 +44,7 @@ def _parse_api_keys(api_keys: str) -> List[str]:
 
 async def check_api_key(
     auth: Optional[HTTPAuthorizationCredentials] = Depends(get_bearer_token),
+    request: Request = None,
     service: Service = Depends(get_service),
 ) -> Optional[str]:
     """Check the api key
@@ -54,30 +56,34 @@ async def check_api_key(
     .. code-block:: python
 
         import requests
+
         client_api_key = "your_api_key"
-        headers = {"Authorization": "Bearer " + client_api_key }
+        headers = {"Authorization": "Bearer " + client_api_key}
         res = requests.get("http://test/hello", headers=headers)
         assert res.status_code == 200
 
     """
-    if service.config.api_keys:
-        api_keys = _parse_api_keys(service.config.api_keys)
-        if auth is None or (token := auth.credentials) not in api_keys:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "error": {
-                        "message": "",
-                        "type": "invalid_request_error",
-                        "param": None,
-                        "code": "invalid_api_key",
-                    }
-                },
-            )
-        return token
-    else:
-        # api_keys not set; allow all
+    if request.url.path.startswith(f"/api/v1"):
         return None
+
+    # if service.config.api_keys:
+    #     api_keys = _parse_api_keys(service.config.api_keys)
+    #     if auth is None or (token := auth.credentials) not in api_keys:
+    #         raise HTTPException(
+    #             status_code=401,
+    #             detail={
+    #                 "error": {
+    #                     "message": "",
+    #                     "type": "invalid_request_error",
+    #                     "param": None,
+    #                     "code": "invalid_api_key",
+    #                 }
+    #             },
+    #         )
+    #     return token
+    # else:
+    #     # api_keys not set; allow all
+    #     return None
 
 
 @router.get("/health")

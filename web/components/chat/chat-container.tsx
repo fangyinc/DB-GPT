@@ -9,13 +9,13 @@ import Header from './header';
 import Chart from '../chart';
 import classNames from 'classnames';
 import MuiLoading from '../common/loading';
-import { Empty } from 'antd';
 import { useSearchParams } from 'next/navigation';
 import { getInitMessage } from '@/utils';
+import MyEmpty from '../common/MyEmpty';
 
 const ChatContainer = () => {
   const searchParams = useSearchParams();
-  const { scene, chatId, model, setModel, history, setHistory } = useContext(ChatContext);
+  const { scene, chatId, model, agent, setModel, history, setHistory } = useContext(ChatContext);
   const chat = useChat({});
   const initMessage = (searchParams && searchParams.get('initMessage')) ?? '';
 
@@ -33,7 +33,7 @@ const ChatContainer = () => {
     const contextTemp = list[list.length - 1]?.context;
     if (contextTemp) {
       try {
-        const contextObj = JSON.parse(contextTemp);
+        const contextObj = typeof contextTemp === 'string' ? JSON.parse(contextTemp) : contextTemp;
         setChartsData(contextObj?.template_name === 'report' ? contextObj?.charts : undefined);
       } catch (e) {
         setChartsData(undefined);
@@ -76,7 +76,11 @@ const ChatContainer = () => {
           data: { ...data, chat_mode: scene || 'chat_normal', model_name: model, user_input: content },
           chatId,
           onMessage: (message) => {
-            tempHistory[index].context = message;
+            if (data?.incremental) {
+              tempHistory[index].context += message;
+            } else {
+              tempHistory[index].context = message;
+            }
             setHistory([...tempHistory]);
           },
           onDone: () => {
@@ -95,7 +99,7 @@ const ChatContainer = () => {
         });
       });
     },
-    [history, chat, model],
+    [history, chat, chatId, model, agent, scene],
   );
 
   return (
@@ -109,21 +113,15 @@ const ChatContainer = () => {
       />
       <div className="px-4 flex flex-1 flex-wrap overflow-hidden relative">
         {!!chartsData?.length && (
-          <div className="w-full xl:w-3/4 h-3/5 xl:pr-4 xl:h-full overflow-y-auto">
+          <div className="w-full pb-4 xl:w-3/4 h-1/2 xl:pr-4 xl:h-full overflow-y-auto">
             <Chart chartsData={chartsData} />
           </div>
         )}
-        {!chartsData?.length && scene === 'chat_dashboard' && (
-          <Empty
-            image="/empty.png"
-            imageStyle={{ width: 320, height: 320, margin: '0 auto', maxWidth: '100%', maxHeight: '100%' }}
-            className="w-full xl:w-3/4 h-3/5 xl:h-full pt-0 md:pt-10"
-          />
-        )}
+        {!chartsData?.length && scene === 'chat_dashboard' && <MyEmpty className="w-full xl:w-3/4 h-1/2 xl:h-full" />}
         {/** chat panel */}
         <div
           className={classNames('flex flex-1 flex-col overflow-hidden', {
-            'px-0 xl:pl-4 h-2/5 xl:h-full border-t xl:border-t-0 xl:border-l': scene === 'chat_dashboard',
+            'px-0 xl:pl-4 h-1/2 w-full xl:w-auto xl:h-full border-t xl:border-t-0 xl:border-l dark:border-gray-800': scene === 'chat_dashboard',
             'h-full lg:px-8': scene !== 'chat_dashboard',
           })}
         >

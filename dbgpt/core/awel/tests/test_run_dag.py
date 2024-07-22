@@ -1,30 +1,32 @@
-import pytest
 from typing import List
+
+import pytest
+
 from .. import (
     DAG,
-    WorkflowRunner,
-    DAGContext,
-    TaskState,
-    InputOperator,
-    MapOperator,
-    JoinOperator,
     BranchOperator,
+    DAGContext,
+    InputOperator,
+    JoinOperator,
+    MapOperator,
     ReduceStreamOperator,
     SimpleInputSource,
+    TaskState,
+    WorkflowRunner,
 )
 from .conftest import (
-    runner,
+    _is_async_iterator,
     input_node,
     input_nodes,
+    runner,
     stream_input_node,
     stream_input_nodes,
-    _is_async_iterator,
 )
 
 
 @pytest.mark.asyncio
 async def test_input_node(runner: WorkflowRunner):
-    input_node = InputOperator(SimpleInputSource("hello"))
+    input_node = InputOperator(SimpleInputSource("hello"), task_id="112232")
     res: DAGContext[str] = await runner.execute_workflow(input_node)
     assert res.current_task_context.current_state == TaskState.SUCCESS
     assert res.current_task_context.task_output.output == "hello"
@@ -34,7 +36,9 @@ async def test_input_node(runner: WorkflowRunner):
             yield i
 
     num_iter = 10
-    steam_input_node = InputOperator(SimpleInputSource(new_steam_iter(num_iter)))
+    steam_input_node = InputOperator(
+        SimpleInputSource(new_steam_iter(num_iter)), task_id="112232"
+    )
     res: DAGContext[str] = await runner.execute_workflow(steam_input_node)
     assert res.current_task_context.current_state == TaskState.SUCCESS
     output_steam = res.current_task_context.task_output.output_stream
@@ -126,7 +130,7 @@ async def test_branch_node(
         even_node = MapOperator(
             lambda x: 888, task_id="even_node", task_name="even_node_name"
         )
-        join_node = JoinOperator(join_func)
+        join_node = JoinOperator(join_func, can_skip_in_branch=False)
         branch_node = BranchOperator(
             {lambda x: x % 2 == 1: odd_node, lambda x: x % 2 == 0: even_node}
         )

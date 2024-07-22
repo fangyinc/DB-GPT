@@ -1,9 +1,11 @@
-ARG BASE_IMAGE="nvidia/cuda:11.8.0-runtime-ubuntu22.04"
+ARG BASE_IMAGE="nvidia/cuda:12.1.0-runtime-ubuntu22.04"
 
 FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git python3 pip wget sqlite3 tzdata \
+# libpq-dev for PG
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git python3 pip \
+    wget sqlite3 tzdata libpq-dev default-libmysqlclient-dev \
     && apt-get clean
 
 ARG BUILD_LOCAL_CODE="false"
@@ -32,15 +34,16 @@ RUN pip3 install --upgrade pip -i $PIP_INDEX_URL \
     # install openai for proxyllm
     && pip3 install -i $PIP_INDEX_URL ".[openai]"
 
-RUN (if [ "${LANGUAGE}" = "zh" ]; \
-        # language is zh, download zh_core_web_sm from github
-        then wget https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.5.0/zh_core_web_sm-3.5.0-py3-none-any.whl -O /tmp/zh_core_web_sm-3.5.0-py3-none-any.whl \
-        && pip3 install /tmp/zh_core_web_sm-3.5.0-py3-none-any.whl -i $PIP_INDEX_URL \
-        && rm /tmp/zh_core_web_sm-3.5.0-py3-none-any.whl; \
-        # not zh, download directly
-        else python3 -m spacy download zh_core_web_sm; \
-    fi;) \
-    && rm -rf `pip3 cache dir`
+# Not install spacy model for now
+#RUN (if [ "${LANGUAGE}" = "zh" ]; \
+#        # language is zh, download zh_core_web_sm from github
+#        then wget https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.7.0/zh_core_web_sm-3.7.0-py3-none-any.whl -O /tmp/zh_core_web_sm-3.7.0-py3-none-any.whl \
+#        && pip3 install /tmp/zh_core_web_sm-3.7.0-py3-none-any.whl -i $PIP_INDEX_URL \
+#        && rm /tmp/zh_core_web_sm-3.7.0-py3-none-any.whl; \
+#        # not zh, download directly
+#        else python3 -m spacy download zh_core_web_sm; \
+#    fi;) \
+#    && rm -rf `pip3 cache dir`
 
 ARG BUILD_LOCAL_CODE="false"
 # COPY the rest of the app
@@ -60,6 +63,6 @@ RUN (if [ "${LANGUAGE}" = "zh" ]; \
     fi;)
 
 ENV PYTHONPATH "/app:$PYTHONPATH"
-EXPOSE 5000
+EXPOSE 5670
 
 CMD ["dbgpt", "start", "webserver"]

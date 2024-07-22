@@ -4,12 +4,9 @@
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Optional, Union, Tuple
+from typing import Dict, Optional, Tuple, Union
 
-from dbgpt.model.conversation import conv_templates
-from dbgpt.util.parameter_utils import BaseParameters
-
-suported_prompt_templates = ",".join(conv_templates.keys())
+from dbgpt.util.parameter_utils import BaseParameters, BaseServerParameters
 
 
 class WorkerType(str, Enum):
@@ -51,31 +48,88 @@ class WorkerType(str, Enum):
 
 
 @dataclass
-class ModelControllerParameters(BaseParameters):
-    host: Optional[str] = field(
-        default="0.0.0.0", metadata={"help": "Model Controller deploy host"}
-    )
+class ModelControllerParameters(BaseServerParameters):
     port: Optional[int] = field(
         default=8000, metadata={"help": "Model Controller deploy port"}
     )
-    daemon: Optional[bool] = field(
-        default=False, metadata={"help": "Run Model Controller in background"}
-    )
-    log_level: Optional[str] = field(
-        default=None,
+    registry_type: Optional[str] = field(
+        default="embedded",
         metadata={
-            "help": "Logging level",
-            "valid_values": [
-                "FATAL",
-                "ERROR",
-                "WARNING",
-                "WARNING",
-                "INFO",
-                "DEBUG",
-                "NOTSET",
-            ],
+            "help": "Registry type: embedded, database...",
+            "valid_values": ["embedded", "database"],
         },
     )
+    registry_db_type: Optional[str] = field(
+        default="mysql",
+        metadata={
+            "help": "Registry database type, now only support sqlite and mysql, it is "
+            "valid when registry_type is database",
+            "valid_values": ["mysql", "sqlite"],
+        },
+    )
+    registry_db_name: Optional[str] = field(
+        default="dbgpt",
+        metadata={
+            "help": "Registry database name, just for database, it is valid when "
+            "registry_type is database, please set to full database path for sqlite"
+        },
+    )
+    registry_db_host: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Registry database host, just for database, it is valid when "
+            "registry_type is database"
+        },
+    )
+    registry_db_port: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Registry database port, just for database, it is valid when "
+            "registry_type is database"
+        },
+    )
+    registry_db_user: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Registry database user, just for database, it is valid when "
+            "registry_type is database"
+        },
+    )
+    registry_db_password: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Registry database password, just for database, it is valid when "
+            "registry_type is database. We recommend to use environment variable to "
+            "store password, you can set it in your environment variable like "
+            "export CONTROLLER_REGISTRY_DB_PASSWORD='your_password'"
+        },
+    )
+    registry_db_pool_size: Optional[int] = field(
+        default=5,
+        metadata={
+            "help": "Registry database pool size, just for database, it is valid when "
+            "registry_type is database"
+        },
+    )
+    registry_db_max_overflow: Optional[int] = field(
+        default=10,
+        metadata={
+            "help": "Registry database max overflow, just for database, it is valid "
+            "when registry_type is database"
+        },
+    )
+
+    heartbeat_interval_secs: Optional[int] = field(
+        default=20, metadata={"help": "The interval for checking heartbeats (seconds)"}
+    )
+    heartbeat_timeout_secs: Optional[int] = field(
+        default=60,
+        metadata={
+            "help": "The timeout for checking heartbeats (seconds), it will be set "
+            "unhealthy if the worker is not responding in this time"
+        },
+    )
+
     log_file: Optional[str] = field(
         default="dbgpt_model_controller.log",
         metadata={
@@ -97,15 +151,9 @@ class ModelControllerParameters(BaseParameters):
 
 
 @dataclass
-class ModelAPIServerParameters(BaseParameters):
-    host: Optional[str] = field(
-        default="0.0.0.0", metadata={"help": "Model API server deploy host"}
-    )
+class ModelAPIServerParameters(BaseServerParameters):
     port: Optional[int] = field(
         default=8100, metadata={"help": "Model API server deploy port"}
-    )
-    daemon: Optional[bool] = field(
-        default=False, metadata={"help": "Run Model API server in background"}
     )
     controller_addr: Optional[str] = field(
         default="http://127.0.0.1:8000",
@@ -116,22 +164,10 @@ class ModelAPIServerParameters(BaseParameters):
         default=None,
         metadata={"help": "Optional list of comma separated API keys"},
     )
-
-    log_level: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Logging level",
-            "valid_values": [
-                "FATAL",
-                "ERROR",
-                "WARNING",
-                "WARNING",
-                "INFO",
-                "DEBUG",
-                "NOTSET",
-            ],
-        },
+    embedding_batch_size: Optional[int] = field(
+        default=None, metadata={"help": "Embedding batch size"}
     )
+
     log_file: Optional[str] = field(
         default="dbgpt_model_apiserver.log",
         metadata={
@@ -159,10 +195,14 @@ class BaseModelParameters(BaseParameters):
 
 
 @dataclass
-class ModelWorkerParameters(BaseModelParameters):
+class ModelWorkerParameters(BaseServerParameters, BaseModelParameters):
     worker_type: Optional[str] = field(
         default=None,
         metadata={"valid_values": WorkerType.values(), "help": "Worker type"},
+    )
+    model_alias: Optional[str] = field(
+        default=None,
+        metadata={"help": "model alias"},
     )
     worker_class: Optional[str] = field(
         default=None,
@@ -175,15 +215,9 @@ class ModelWorkerParameters(BaseModelParameters):
             "tags": "fixed",
         },
     )
-    host: Optional[str] = field(
-        default="0.0.0.0", metadata={"help": "Model worker deploy host"}
-    )
 
     port: Optional[int] = field(
         default=8001, metadata={"help": "Model worker deploy port"}
-    )
-    daemon: Optional[bool] = field(
-        default=False, metadata={"help": "Run Model Worker in background"}
     )
     limit_model_concurrency: Optional[int] = field(
         default=5, metadata={"help": "Model concurrency limit"}
@@ -198,7 +232,8 @@ class ModelWorkerParameters(BaseModelParameters):
     worker_register_host: Optional[str] = field(
         default=None,
         metadata={
-            "help": "The ip address of current worker to register to ModelController. If None, the address is automatically determined"
+            "help": "The ip address of current worker to register to ModelController. "
+            "If None, the address is automatically determined"
         },
     )
     controller_addr: Optional[str] = field(
@@ -211,21 +246,6 @@ class ModelWorkerParameters(BaseModelParameters):
         default=20, metadata={"help": "The interval for sending heartbeats (seconds)"}
     )
 
-    log_level: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Logging level",
-            "valid_values": [
-                "FATAL",
-                "ERROR",
-                "WARNING",
-                "WARNING",
-                "INFO",
-                "DEBUG",
-                "NOTSET",
-            ],
-        },
-    )
     log_file: Optional[str] = field(
         default="dbgpt_model_worker_manager.log",
         metadata={
@@ -251,6 +271,10 @@ class BaseEmbeddingModelParameters(BaseModelParameters):
     def build_kwargs(self, **kwargs) -> Dict:
         pass
 
+    def is_rerank_model(self) -> bool:
+        """Check if the model is a rerank model"""
+        return False
+
 
 @dataclass
 class EmbeddingModelParameters(BaseEmbeddingModelParameters):
@@ -268,6 +292,19 @@ class EmbeddingModelParameters(BaseEmbeddingModelParameters):
         },
     )
 
+    rerank: Optional[bool] = field(
+        default=False, metadata={"help": "Whether the model is a rerank model"}
+    )
+
+    max_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Max length for input sequences. Longer sequences will be "
+            "truncated. If None, max length of the model will be used, just for rerank"
+            " model now."
+        },
+    )
+
     def build_kwargs(self, **kwargs) -> Dict:
         model_kwargs, encode_kwargs = None, None
         if self.device:
@@ -276,9 +313,15 @@ class EmbeddingModelParameters(BaseEmbeddingModelParameters):
             encode_kwargs = {"normalize_embeddings": self.normalize_embeddings}
         if model_kwargs:
             kwargs["model_kwargs"] = model_kwargs
+        if self.is_rerank_model():
+            kwargs["max_length"] = self.max_length
         if encode_kwargs:
             kwargs["encode_kwargs"] = encode_kwargs
         return kwargs
+
+    def is_rerank_model(self) -> bool:
+        """Check if the model is a rerank model"""
+        return self.rerank
 
 
 @dataclass
@@ -299,7 +342,8 @@ class ModelParameters(BaseModelParameters):
     prompt_template: Optional[str] = field(
         default=None,
         metadata={
-            "help": f"Prompt template. If None, the prompt template is automatically determined from model path, supported template: {suported_prompt_templates}"
+            "help": f"Prompt template. If None, the prompt template is automatically "
+            f"determined from model path"
         },
     )
     max_context_size: Optional[int] = field(
@@ -450,7 +494,8 @@ class ProxyModelParameters(BaseModelParameters):
     proxyllm_backend: Optional[str] = field(
         default=None,
         metadata={
-            "help": "The model name actually pass to current proxy server url, such as gpt-3.5-turbo, gpt-4, chatglm_pro, chatglm_std and so on"
+            "help": "The model name actually pass to current proxy server url, such "
+            "as gpt-3.5-turbo, gpt-4, chatglm_pro, chatglm_std and so on"
         },
     )
     model_type: Optional[str] = field(
@@ -463,18 +508,31 @@ class ProxyModelParameters(BaseModelParameters):
     device: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Device to run model. If None, the device is automatically determined"
+            "help": "Device to run model. If None, the device is automatically "
+            "determined"
         },
     )
     prompt_template: Optional[str] = field(
         default=None,
         metadata={
-            "help": f"Prompt template. If None, the prompt template is automatically determined from model path, supported template: {suported_prompt_templates}"
+            "help": f"Prompt template. If None, the prompt template is automatically "
+            f"determined from model path"
         },
     )
     max_context_size: Optional[int] = field(
         default=4096, metadata={"help": "Maximum context size"}
     )
+    llm_client_class: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The class name of llm client, such as "
+            "dbgpt.model.proxy.llms.proxy_model.ProxyModel"
+        },
+    )
+
+    def __post_init__(self):
+        if not self.proxy_server_url and self.proxy_api_base:
+            self.proxy_server_url = f"{self.proxy_api_base}/chat/completions"
 
 
 @dataclass
@@ -518,26 +576,34 @@ class ProxyEmbeddingParameters(BaseEmbeddingModelParameters):
         metadata={"help": "Tto support Azure OpenAI Service custom deployment names"},
     )
 
+    rerank: Optional[bool] = field(
+        default=False, metadata={"help": "Whether the model is a rerank model"}
+    )
+
     def build_kwargs(self, **kwargs) -> Dict:
         params = {
             "openai_api_base": self.proxy_server_url,
             "openai_api_key": self.proxy_api_key,
             "openai_api_type": self.proxy_api_type if self.proxy_api_type else None,
-            "openai_api_version": self.proxy_api_version
-            if self.proxy_api_version
-            else None,
+            "openai_api_version": (
+                self.proxy_api_version if self.proxy_api_version else None
+            ),
             "model": self.proxy_backend,
-            "deployment": self.proxy_deployment
-            if self.proxy_deployment
-            else self.proxy_backend,
+            "deployment": (
+                self.proxy_deployment if self.proxy_deployment else self.proxy_backend
+            ),
         }
         for k, v in kwargs:
             params[k] = v
         return params
 
+    def is_rerank_model(self) -> bool:
+        """Check if the model is a rerank model"""
+        return self.rerank
+
 
 _EMBEDDING_PARAMETER_CLASS_TO_NAME_CONFIG = {
-    ProxyEmbeddingParameters: "proxy_openai,proxy_azure"
+    ProxyEmbeddingParameters: "proxy_openai,proxy_azure,proxy_http_openapi,proxy_ollama,proxy_tongyi,rerank_proxy_http_openapi",
 }
 
 EMBEDDING_NAME_TO_PARAMETER_CLASS_CONFIG = {}

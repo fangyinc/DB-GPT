@@ -1,15 +1,14 @@
-'use client';
-
 import React, { useMemo, useState } from 'react';
 import { useAsyncEffect } from 'ahooks';
 import { Badge, Button, Card, Drawer, Empty, Modal, Spin, message } from 'antd';
 import FormDialog from '@/components/database/form-dialog';
-import { apiInterceptors, getDbList, getDbSupportType, postDbDelete } from '@/client/api';
-import DBCard from '@/components/database/db-card';
-import { DeleteFilled, EditFilled, PlusOutlined } from '@ant-design/icons';
+import { apiInterceptors, getDbList, getDbSupportType, postDbDelete, postDbRefresh } from '@/client/api';
+import { DeleteFilled, EditFilled, PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import { DBOption, DBType, DbListResponse, DbSupportTypeResponse } from '@/types/db';
 import MuiLoading from '@/components/common/loading';
 import { dbMapper } from '@/utils';
+import GPTCard from '@/components/common/gpt-card';
+import { useTranslation } from 'react-i18next';
 
 type DBItem = DbListResponse[0];
 
@@ -18,20 +17,23 @@ export function isFileDb(dbTypeList: DBOption[], dbType: DBType) {
 }
 
 function Database() {
+  const { t } = useTranslation();
+
   const [dbList, setDbList] = useState<DbListResponse>([]);
   const [dbSupportList, setDbSupportList] = useState<DbSupportTypeResponse>([]);
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; info?: DBItem; dbType?: DBType }>({ open: false });
   const [draw, setDraw] = useState<{ open: boolean; dbList?: DbListResponse; name?: string; type?: DBType }>({ open: false });
+  const [refreshLoading, setRefreshLoading] = useState(false);
 
   const getDbSupportList = async () => {
-    const [_, data] = await apiInterceptors(getDbSupportType());
+    const [, data] = await apiInterceptors(getDbSupportType());
     setDbSupportList(data ?? []);
   };
 
   const refreshDbList = async () => {
     setLoading(true);
-    const [_, data] = await apiInterceptors(getDbList());
+    const [, data] = await apiInterceptors(getDbList());
     setDbList(data ?? []);
     setLoading(false);
   };
@@ -76,6 +78,13 @@ function Database() {
     });
   };
 
+  const onRefresh = async (item: DBItem) => {
+    setRefreshLoading(true);
+    const [, res] = await apiInterceptors(postDbRefresh({ db_name: item.db_name, db_type: item.db_type }));
+    if (res) message.success(t('refreshSuccess'));
+    setRefreshLoading(false);
+  };
+
   const dbListByType = useMemo(() => {
     const mapper = dbTypeList.reduce((acc, item) => {
       acc[item.value] = dbList.filter((dbConn) => dbConn.db_type === item.value);
@@ -95,7 +104,7 @@ function Database() {
   };
 
   return (
-    <div className="relative p-4 md:p-6 bg-[#FAFAFA] dark:bg-transparent min-h-full overflow-y-auto">
+    <div className="relative p-4 md:p-6 min-h-full overflow-y-auto">
       <MuiLoading visible={loading} />
       <div className="mb-4">
         <Button
@@ -106,15 +115,20 @@ function Database() {
             setModal({ open: true });
           }}
         >
-          Create
+          {t('create')}
         </Button>
       </div>
       <div className="flex flex-wrap gap-2 md:gap-4">
         {dbTypeList.map((item) => (
-          <Badge key={item.value} count={dbListByType[item.value].length}>
-            <DBCard
-              info={item}
+          <Badge key={item.value} count={dbListByType[item.value].length} className="min-h-fit">
+            <GPTCard
+              className="h-full"
+              title={item.label}
+              desc={item.desc ?? ''}
+              disabled={item.disabled}
+              icon={item.icon}
               onClick={() => {
+                if (item.disabled) return;
                 handleDbTypeClick(item);
               }}
             />
@@ -144,7 +158,7 @@ function Database() {
         open={draw.open}
       >
         {draw.type && dbListByType[draw.type] && dbListByType[draw.type].length ? (
-          <>
+          <Spin spinning={refreshLoading}>
             <Button
               type="primary"
               className="mb-4 flex items-center"
@@ -160,9 +174,14 @@ function Database() {
                 key={item.db_name}
                 title={item.db_name}
                 extra={
-                  <>
+                  <div className="flex items-center gap-3">
+                    <RedoOutlined
+                      style={{ color: 'gray' }}
+                      onClick={() => {
+                        onRefresh(item);
+                      }}
+                    />
                     <EditFilled
-                      className="mr-2"
                       style={{ color: '#1b7eff' }}
                       onClick={() => {
                         onModify(item);
@@ -174,7 +193,7 @@ function Database() {
                         onDelete(item);
                       }}
                     />
-                  </>
+                  </div>
                 }
                 className="mb-4"
               >
@@ -190,7 +209,7 @@ function Database() {
                 <p>remark: {item.comment}</p>
               </Card>
             ))}
-          </>
+          </Spin>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_DEFAULT}>
             <Button

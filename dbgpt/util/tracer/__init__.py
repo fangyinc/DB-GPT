@@ -1,23 +1,24 @@
 from dbgpt.util.tracer.base import (
-    SpanType,
+    DBGPT_TRACER_SPAN_ID,
     Span,
-    SpanTypeRunName,
-    Tracer,
     SpanStorage,
     SpanStorageType,
+    SpanType,
+    SpanTypeRunName,
+    Tracer,
     TracerContext,
 )
 from dbgpt.util.tracer.span_storage import (
-    MemorySpanStorage,
     FileSpanStorage,
+    MemorySpanStorage,
     SpanStorageContainer,
 )
 from dbgpt.util.tracer.tracer_impl import (
-    root_tracer,
-    trace,
-    initialize_tracer,
     DefaultTracer,
     TracerManager,
+    initialize_tracer,
+    root_tracer,
+    trace,
 )
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "SpanStorage",
     "SpanStorageType",
     "TracerContext",
+    "DBGPT_TRACER_SPAN_ID",
     "MemorySpanStorage",
     "FileSpanStorage",
     "SpanStorageContainer",

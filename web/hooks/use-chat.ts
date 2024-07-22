@@ -1,7 +1,8 @@
 import { EventStreamContentType, fetchEventSource } from '@microsoft/fetch-event-source';
 import { message } from 'antd';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useContext, useEffect, useMemo } from 'react';
 import i18n from '@/app/i18n';
+import { ChatContext } from '@/app/chat-context';
 
 type Props = {
   queryAgentURL?: string;
@@ -10,6 +11,7 @@ type Props = {
 type ChatParams = {
   chatId: string;
   data?: Record<string, any>;
+  query?: Record<string, string>;
   onMessage: (message: string) => void;
   onClose?: () => void;
   onDone?: () => void;
@@ -18,11 +20,12 @@ type ChatParams = {
 
 const useChat = ({ queryAgentURL = '/api/v1/chat/completions' }: Props) => {
   const ctrl = useMemo(() => new AbortController(), []);
+  const { scene } = useContext(ChatContext);
 
   const chat = useCallback(
     async ({ data, chatId, onMessage, onClose, onDone, onError }: ChatParams) => {
       if (!data?.user_input && !data?.doc_id) {
-        message.warning(i18n.t('NoContextTip'));
+        message.warning(i18n.t('no_context_tip'));
         return;
       }
 
@@ -58,13 +61,27 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions' }: Props) => {
             throw new Error(err);
           },
           onmessage: (event) => {
-            const message = event.data?.replaceAll('\\n', '\n');
-            if (message === '[DONE]') {
-              onDone?.();
-            } else if (message?.startsWith('[ERROR]')) {
-              onError?.(message?.replace('[ERROR]', ''));
+            let message = event.data;
+            try {
+              if (scene === 'chat_agent') {
+                message = JSON.parse(message).vis;
+              } else {
+                message = JSON.parse(message);
+              }
+            } catch (e) {
+              message.replaceAll('\\n', '\n');
+            }
+            if (typeof message === 'string') {
+              if (message === '[DONE]') {
+                onDone?.();
+              } else if (message?.startsWith('[ERROR]')) {
+                onError?.(message?.replace('[ERROR]', ''));
+              } else {
+                onMessage?.(message);
+              }
             } else {
               onMessage?.(message);
+              onDone?.();
             }
           },
         });

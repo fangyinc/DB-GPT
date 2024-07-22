@@ -1,14 +1,19 @@
-#!/usr/bin/env python3
-# -*- coding:utf-8 -*-
-
+import asyncio
 import logging
 import logging.handlers
-from typing import Any, List
-
 import os
-import asyncio
+import sys
+from typing import Any, List, Optional, cast
 
 from dbgpt.configs.model_config import LOGDIR
+
+try:
+    from termcolor import colored
+except ImportError:
+
+    def colored(x, *args, **kwargs):
+        return x
+
 
 server_error_msg = (
     "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
@@ -21,22 +26,29 @@ def _get_logging_level() -> str:
     return os.getenv("DBGPT_LOG_LEVEL", "INFO")
 
 
-def setup_logging_level(logging_level=None, logger_name: str = None):
+def setup_logging_level(
+    logging_level: Optional[str] = None, logger_name: Optional[str] = None
+):
     if not logging_level:
         logging_level = _get_logging_level()
     if type(logging_level) is str:
         logging_level = logging.getLevelName(logging_level.upper())
     if logger_name:
         logger = logging.getLogger(logger_name)
-        logger.setLevel(logging_level)
+        logger.setLevel(cast(str, logging_level))
     else:
         logging.basicConfig(level=logging_level, encoding="utf-8")
 
 
-def setup_logging(logger_name: str, logging_level=None, logger_filename: str = None):
+def setup_logging(
+    logger_name: str,
+    logging_level: Optional[str] = None,
+    logger_filename: Optional[str] = None,
+    redirect_stdio: bool = False,
+):
     if not logging_level:
         logging_level = _get_logging_level()
-    logger = _build_logger(logger_name, logging_level, logger_filename)
+    logger = _build_logger(logger_name, logging_level, logger_filename, redirect_stdio)
     try:
         import coloredlogs
 
@@ -55,7 +67,6 @@ def get_gpu_memory(max_gpus=None):
         if max_gpus is None
         else min(max_gpus, torch.cuda.device_count())
     )
-
     for gpu_id in range(num_gpus):
         with torch.cuda.device(gpu_id):
             device = torch.cuda.current_device()
@@ -67,7 +78,12 @@ def get_gpu_memory(max_gpus=None):
     return gpu_memory
 
 
-def _build_logger(logger_name, logging_level=None, logger_filename: str = None):
+def _build_logger(
+    logger_name,
+    logging_level: Optional[str] = None,
+    logger_filename: Optional[str] = None,
+    redirect_stdio: bool = False,
+):
     global handler
 
     formatter = logging.Formatter(
@@ -89,12 +105,37 @@ def _build_logger(logger_name, logging_level=None, logger_filename: str = None):
         )
         handler.setFormatter(formatter)
 
+        # Ensure the handler level is set correctly
+        if logging_level is not None:
+            handler.setLevel(logging_level)
+        logging.getLogger().addHandler(handler)
         for name, item in logging.root.manager.loggerDict.items():
             if isinstance(item, logging.Logger):
                 item.addHandler(handler)
-    # Get logger
+                item.propagate = True
+                logging.getLogger(name).debug(f"Added handler to logger: {name}")
+            else:
+                logging.getLogger(name).debug(f"Skipping non-logger: {name}")
+
+        if redirect_stdio:
+            stdout_handler = logging.StreamHandler(sys.stdout)
+            stdout_handler.setFormatter(formatter)
+            stderr_handler = logging.StreamHandler(sys.stderr)
+            stderr_handler.setFormatter(formatter)
+
+            root_logger = logging.getLogger()
+            root_logger.addHandler(stdout_handler)
+            root_logger.addHandler(stderr_handler)
+            logging.getLogger().debug("Added stdout and stderr handlers to root logger")
     logger = logging.getLogger(logger_name)
+
     setup_logging_level(logging_level=logging_level, logger_name=logger_name)
+
+    # Debugging to print all handlers
+    logging.getLogger(logger_name).debug(
+        f"Logger {logger_name} handlers: {logger.handlers}"
+    )
+    logging.getLogger(logger_name).debug(f"Global handler: {handler}")
 
     return logger
 
@@ -104,14 +145,14 @@ def get_or_create_event_loop() -> asyncio.BaseEventLoop:
     try:
         loop = asyncio.get_event_loop()
         assert loop is not None
-        return loop
+        return cast(asyncio.BaseEventLoop, loop)
     except RuntimeError as e:
         if not "no running event loop" in str(e) and not "no current event loop" in str(
             e
         ):
             raise e
         logging.warning("Cant not get running event loop, create new event loop now")
-    return asyncio.get_event_loop_policy().new_event_loop()
+    return cast(asyncio.BaseEventLoop, asyncio.get_event_loop_policy().new_event_loop())
 
 
 def logging_str_to_uvicorn_level(log_level_str):
@@ -145,7 +186,7 @@ class EndpointFilter(logging.Filter):
         return record.getMessage().find(self._path) == -1
 
 
-def setup_http_service_logging(exclude_paths: List[str] = None):
+def setup_http_service_logging(exclude_paths: Optional[List[str]] = None):
     """Setup http service logging
 
     Now just disable some logs
@@ -155,7 +196,7 @@ def setup_http_service_logging(exclude_paths: List[str] = None):
     """
     if not exclude_paths:
         # Not show heartbeat log
-        exclude_paths = ["/api/controller/heartbeat"]
+        exclude_paths = ["/api/controller/heartbeat", "/api/health"]
     uvicorn_logger = logging.getLogger("uvicorn.access")
     if uvicorn_logger:
         for path in exclude_paths:

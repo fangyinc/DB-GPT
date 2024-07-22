@@ -1,31 +1,20 @@
 import pytest
 import pytest_asyncio
-from aioresponses import aioresponses
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from httpx import AsyncClient, HTTPError
-import importlib.metadata as metadata
+from httpx import ASGITransport, AsyncClient, HTTPError
 
 from dbgpt.component import SystemApp
-from dbgpt.util.openai_utils import chat_completion_stream, chat_completion
-
 from dbgpt.model.cluster.apiserver.api import (
+    ModelList,
     api_settings,
     initialize_apiserver,
-    ModelList,
-    UsageInfo,
-    ChatCompletionResponse,
-    ChatCompletionResponseStreamChoice,
-    ChatCompletionStreamResponse,
-    ChatMessage,
-    ChatCompletionResponseChoice,
-    DeltaMessage,
 )
 from dbgpt.model.cluster.tests.conftest import _new_cluster
-
 from dbgpt.model.cluster.worker.manager import _DefaultWorkerManagerFactory
+from dbgpt.util.fastapi import create_app
+from dbgpt.util.openai_utils import chat_completion, chat_completion_stream
 
-app = FastAPI()
+app = create_app()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,13 +45,14 @@ async def client(request, system_app: SystemApp):
     if api_settings:
         # Clear global api keys
         api_settings.api_keys = []
-    async with AsyncClient(app=app, base_url="http://test", headers=headers) as client:
+    async with AsyncClient(
+        transport=ASGITransport(app), base_url="http://test", headers=headers
+    ) as client:
         async with _new_cluster(**param) as cluster:
             worker_manager, model_registry = cluster
             system_app.register(_DefaultWorkerManagerFactory, worker_manager)
             system_app.register_instance(model_registry)
-            # print(f"Instances {model_registry.registry}")
-            initialize_apiserver(None, app, system_app, api_keys=api_keys)
+            initialize_apiserver(None, None, app, system_app, api_keys=api_keys)
             yield client
 
 
@@ -70,7 +60,7 @@ async def client(request, system_app: SystemApp):
 async def test_get_all_models(client: AsyncClient):
     res = await client.get("/api/v1/models")
     res.status_code == 200
-    model_lists = ModelList.parse_obj(res.json())
+    model_lists = ModelList.model_validate(res.json())
     print(f"model list json: {res.json()}")
     assert model_lists.object == "list"
     assert len(model_lists.data) == 2
@@ -113,7 +103,11 @@ async def test_chat_completions(client: AsyncClient, expected_messages):
             "Hello world.",
             "abc",
         ),
-        ({"stream_messags": ["你好，我是", "张三。"], "api_keys": ["abc"]}, "你好，我是张三。", "abc"),
+        (
+            {"stream_messags": ["你好，我是", "张三。"], "api_keys": ["abc"]},
+            "你好，我是张三。",
+            "abc",
+        ),
     ],
     indirect=["client"],
 )
@@ -160,7 +154,11 @@ async def test_chat_completions_with_openai_lib_async_no_stream(
             "Hello world.",
             "abc",
         ),
-        ({"stream_messags": ["你好，我是", "张三。"], "api_keys": ["abc"]}, "你好，我是张三。", "abc"),
+        (
+            {"stream_messags": ["你好，我是", "张三。"], "api_keys": ["abc"]},
+            "你好，我是张三。",
+            "abc",
+        ),
     ],
     indirect=["client"],
 )

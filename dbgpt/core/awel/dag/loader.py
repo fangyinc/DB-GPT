@@ -1,10 +1,16 @@
+"""DAG loader.
+
+DAGLoader will load DAGs from dag_dirs or other sources.
+Now only support load DAGs from local files.
+"""
+
+import hashlib
+import logging
+import os
+import sys
+import traceback
 from abc import ABC, abstractmethod
 from typing import List
-import os
-import hashlib
-import sys
-import logging
-import traceback
 
 from .base import DAG
 
@@ -12,23 +18,35 @@ logger = logging.getLogger(__name__)
 
 
 class DAGLoader(ABC):
+    """Abstract base class representing a loader for loading DAGs."""
+
     @abstractmethod
     def load_dags(self) -> List[DAG]:
-        """Load dags"""
+        """Load dags."""
 
 
 class LocalFileDAGLoader(DAGLoader):
-    def __init__(self, filepath: str) -> None:
-        super().__init__()
-        self._filepath = filepath
+    """DAG loader for loading DAGs from local files."""
+
+    def __init__(self, dag_dirs: List[str]) -> None:
+        """Initialize a LocalFileDAGLoader.
+
+        Args:
+            dag_dirs (List[str]): The directories to load DAGs.
+        """
+        self._dag_dirs = dag_dirs
 
     def load_dags(self) -> List[DAG]:
-        if not os.path.exists(self._filepath):
-            return []
-        if os.path.isdir(self._filepath):
-            return _process_directory(self._filepath)
-        else:
-            return _process_file(self._filepath)
+        """Load dags from local files."""
+        dags = []
+        for filepath in self._dag_dirs:
+            if not os.path.exists(filepath):
+                continue
+            if os.path.isdir(filepath):
+                dags += _process_directory(filepath)
+            else:
+                dags += _process_file(filepath)
+        return dags
 
 
 def _process_directory(directory: str) -> List[DAG]:
@@ -46,19 +64,23 @@ def _process_file(filepath) -> List[DAG]:
     return results
 
 
-def _load_modules_from_file(filepath: str):
+def _load_modules_from_file(
+    filepath: str, mod_name: str | None = None, show_log: bool = True
+):
     import importlib
     import importlib.machinery
     import importlib.util
 
-    logger.info(f"Importing {filepath}")
+    if show_log:
+        logger.info(f"Importing {filepath}")
 
     org_mod_name, _ = os.path.splitext(os.path.split(filepath)[-1])
     path_hash = hashlib.sha1(filepath.encode("utf-8")).hexdigest()
-    mod_name = f"unusual_prefix_{path_hash}_{org_mod_name}"
+    if mod_name is None:
+        mod_name = f"unusual_prefix_{path_hash}_{org_mod_name}"
 
-    if mod_name in sys.modules:
-        del sys.modules[mod_name]
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
 
     def parse(mod_name, filepath):
         try:
@@ -68,7 +90,7 @@ def _load_modules_from_file(filepath: str):
             sys.modules[spec.name] = new_module
             loader.exec_module(new_module)
             return [new_module]
-        except Exception as e:
+        except Exception:
             msg = traceback.format_exc()
             logger.error(f"Failed to import: {filepath}, error message: {msg}")
             # TODO save error message
@@ -77,7 +99,7 @@ def _load_modules_from_file(filepath: str):
     return parse(mod_name, filepath)
 
 
-def _process_modules(mods) -> List[DAG]:
+def _process_modules(mods, show_log: bool = True) -> List[DAG]:
     top_level_dags = (
         (o, m) for m in mods for o in m.__dict__.values() if isinstance(o, DAG)
     )
@@ -85,7 +107,10 @@ def _process_modules(mods) -> List[DAG]:
     for dag, mod in top_level_dags:
         try:
             # TODO validate dag params
-            logger.info(f"Found dag {dag} from mod {mod} and model file {mod.__file__}")
+            if show_log:
+                logger.info(
+                    f"Found dag {dag} from mod {mod} and model file {mod.__file__}"
+                )
             found_dags.append(dag)
         except Exception:
             msg = traceback.format_exc()

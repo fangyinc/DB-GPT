@@ -1,20 +1,25 @@
-import os
 import logging
-
-from typing import Dict, Iterator, List, Optional
+import os
 import time
 import traceback
+from typing import Dict, Iterator, List, Optional
 
 from dbgpt.configs.model_config import get_device
-from dbgpt.model.model_adapter import get_llm_model_adapter, LLMModelAdaper
-from dbgpt.core import ModelOutput, ModelInferenceMetrics
-from dbgpt.model.loader import ModelLoader, _get_model_real_path
-from dbgpt.model.parameter import ModelParameters
+from dbgpt.core import (
+    ModelExtraMedata,
+    ModelInferenceMetrics,
+    ModelMetadata,
+    ModelOutput,
+)
+from dbgpt.model.adapter.base import LLMModelAdapter
+from dbgpt.model.adapter.loader import ModelLoader, _get_model_real_path
+from dbgpt.model.adapter.model_adapter import get_llm_model_adapter
 from dbgpt.model.cluster.worker_base import ModelWorker
+from dbgpt.model.parameter import ModelParameters
 from dbgpt.util.model_utils import _clear_model_cache, _get_current_cuda_memory
 from dbgpt.util.parameter_utils import EnvArgumentParser, _get_dict_from_obj
-from dbgpt.util.tracer import root_tracer, SpanType, SpanTypeRunName
 from dbgpt.util.system_utils import get_system_info
+from dbgpt.util.tracer import SpanType, SpanTypeRunName, root_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ class DefaultModelWorker(ModelWorker):
         self.model = None
         self.tokenizer = None
         self._model_params = None
-        self.llm_adapter: LLMModelAdaper = None
+        self.llm_adapter: LLMModelAdapter = None
         self._support_async = False
 
     def load_worker(self, model_name: str, model_path: str, **kwargs) -> None:
@@ -111,12 +116,16 @@ class DefaultModelWorker(ModelWorker):
             self.model, self.tokenizer = self.ml.loader_with_params(
                 model_params, self.llm_adapter
             )
-            model_max_length = _parse_model_max_length(self.model, self.tokenizer)
+            model_max_length = self.llm_adapter.parse_max_length(
+                self.model, self.tokenizer
+            )
             if model_max_length:
                 logger.info(
                     f"Parse model max length {model_max_length} from model {self.model_name}."
                 )
                 self.context_len = model_max_length
+            elif hasattr(model_params, "max_context_size"):
+                self.context_len = model_params.max_context_size
 
     def stop(self) -> None:
         if not self.model:
@@ -184,6 +193,34 @@ class DefaultModelWorker(ModelWorker):
         for out in self.generate_stream(params):
             output = out
         return output
+
+    def count_token(self, prompt: str) -> int:
+        return _try_to_count_token(prompt, self.tokenizer, self.model)
+
+    async def async_count_token(self, prompt: str) -> int:
+        # TODO if we deploy the model by vllm, it can't work, we should run
+        #  transformer _try_to_count_token to async
+        from dbgpt.model.proxy.llms.proxy_model import ProxyModel
+
+        if isinstance(self.model, ProxyModel) and self.model.proxy_llm_client:
+            return await self.model.proxy_llm_client.count_token(
+                self.model.proxy_llm_client.default_model, prompt
+            )
+        raise NotImplementedError
+
+    def get_model_metadata(self, params: Dict) -> ModelMetadata:
+        ext_metadata = ModelExtraMedata(
+            prompt_roles=self.llm_adapter.get_prompt_roles(),
+            prompt_sep=self.llm_adapter.get_default_message_separator(),
+        )
+        return ModelMetadata(
+            model=self.model_name,
+            context_length=self.context_len,
+            ext_metadata=ext_metadata,
+        )
+
+    async def async_get_model_metadata(self, params: Dict) -> ModelMetadata:
+        return self.get_model_metadata(params)
 
     def embeddings(self, params: Dict) -> List[List[float]]:
         raise NotImplementedError
@@ -267,6 +304,8 @@ class DefaultModelWorker(ModelWorker):
                 self.model, self.model_path
             )
         str_prompt = params.get("prompt")
+        if not str_prompt:
+            str_prompt = params.get("string_prompt")
         print(
             f"llm_adapter: {str(self.llm_adapter)}\n\nmodel prompt: \n\n{str_prompt}\n\n{stream_type}stream output:\n"
         )
@@ -281,17 +320,16 @@ class DefaultModelWorker(ModelWorker):
                 map(lambda m: m.dict(), span_params["messages"])
             )
 
-        model_span = root_tracer.start_span(
-            span_operation_name,
-            metadata={
-                "prompt": str_prompt,
-                "params": span_params,
-                "is_async_func": self.support_async(),
-                "llm_adapter": str(self.llm_adapter),
-                "generate_stream_func": generate_stream_func_str_name,
-                "model_context": model_context,
-            },
-        )
+        metadata = {
+            "is_async_func": self.support_async(),
+            "llm_adapter": str(self.llm_adapter),
+            "generate_stream_func": generate_stream_func_str_name,
+        }
+        metadata.update(span_params)
+        metadata.update(model_context)
+        metadata["prompt"] = str_prompt
+
+        model_span = root_tracer.start_span(span_operation_name, metadata=metadata)
 
         return params, model_context, generate_stream_func, model_span
 
@@ -305,19 +343,25 @@ class DefaultModelWorker(ModelWorker):
     ):
         finish_reason = None
         usage = None
+        error_code = 0
         if isinstance(output, dict):
             finish_reason = output.get("finish_reason")
             usage = output.get("usage")
             output = output["text"]
             if finish_reason is not None:
                 logger.info(f"finish_reason: {finish_reason}")
+        elif isinstance(output, ModelOutput):
+            finish_reason = output.finish_reason
+            usage = output.usage
+            error_code = output.error_code
+            output = output.text
         incremental_output = output[len(previous_response) :]
         print(incremental_output, end="", flush=True)
 
         metrics = _new_metrics_from_model_output(last_metrics, is_first_generate, usage)
         model_output = ModelOutput(
             text=output,
-            error_code=0,
+            error_code=error_code,
             model_context=model_context,
             finish_reason=finish_reason,
             usage=usage,
@@ -433,6 +477,31 @@ def _new_metrics_from_model_output(
             ].available_memory_gb
 
     return metrics
+
+
+def _try_to_count_token(prompt: str, tokenizer, model) -> int:
+    """Try to count token of prompt
+
+    Args:
+        prompt (str): prompt
+        tokenizer ([type]): tokenizer
+        model ([type]): model
+
+    Returns:
+        int: token count, if error return -1
+
+    TODO: More implementation
+    """
+    try:
+        from dbgpt.model.proxy.llms.proxy_model import ProxyModel
+
+        if isinstance(model, ProxyModel):
+            return model.count_token(prompt)
+        # Only support huggingface model now
+        return len(tokenizer(prompt).input_ids[0])
+    except Exception as e:
+        logger.warning(f"Count token error, detail: {e}, return -1")
+        return -1
 
 
 def _try_import_torch():

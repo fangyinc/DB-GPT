@@ -1,12 +1,15 @@
-from typing import Type, Optional, Union, Dict, Any
+from typing import Any, Dict, Optional, Type, Union
+
 import pytest
 from sqlalchemy import Column, Integer, String
-from dbgpt._private.pydantic import BaseModel as PydanticBaseModel, Field
+
+from dbgpt._private.pydantic import BaseModel as PydanticBaseModel
+from dbgpt._private.pydantic import Field, model_to_dict
 from dbgpt.storage.metadata.db_manager import (
+    BaseModel,
     DatabaseManager,
     PaginationResult,
     create_model,
-    BaseModel,
 )
 
 from .._base_dao import BaseDao
@@ -58,7 +61,7 @@ def user_dao(db, User):
     class UserDao(BaseDao[User, UserRequest, UserResponse]):
         def from_request(self, request: Union[UserRequest, Dict[str, Any]]) -> User:
             if isinstance(request, UserRequest):
-                return User(**request.dict())
+                return User(**model_to_dict(request))
             else:
                 return User(**request)
 
@@ -68,7 +71,7 @@ def user_dao(db, User):
             )
 
         def from_response(self, response: UserResponse) -> User:
-            return User(**response.dict())
+            return User(**model_to_dict(response))
 
         def to_response(self, entity: User):
             return UserResponse(id=entity.id, name=entity.name, age=entity.age)
@@ -100,7 +103,7 @@ def test_update_user(db: DatabaseManager, User: Type[BaseModel], user_dao, user_
 
     # Verify that the user is updated in the database
     with db.session() as session:
-        user = session.query(User).get(created_user_response.id)
+        user = session.get(User, created_user_response.id)
         assert user.age == 35
 
 
@@ -121,7 +124,7 @@ def test_update_user_partial(
 
     # Verify that the user is updated in the database
     with db.session() as session:
-        user = session.query(User).get(created_user_response.id)
+        user = session.get(User, created_user_response.id)
         assert user.age == user_req.age
         assert user.password == "newpassword"
 

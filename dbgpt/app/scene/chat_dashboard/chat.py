@@ -1,15 +1,15 @@
 import json
 import os
 import uuid
-from typing import List, Dict
+from typing import Dict, List
 
-from dbgpt.app.scene import BaseChat, ChatScene
 from dbgpt._private.config import Config
+from dbgpt.app.scene import BaseChat, ChatScene
+from dbgpt.app.scene.chat_dashboard.data_loader import DashboardDataLoader
 from dbgpt.app.scene.chat_dashboard.data_preparation.report_schma import (
     ChartData,
     ReportData,
 )
-from dbgpt.app.scene.chat_dashboard.data_loader import DashboardDataLoader
 from dbgpt.util.executor_utils import blocking_func_to_async
 from dbgpt.util.tracer import trace
 
@@ -38,7 +38,7 @@ class ChatDashboard(BaseChat):
         self.db_name = self.db_name
         self.report_name = chat_param.get("report_name", "report")
 
-        self.database = CFG.LOCAL_DB_MANAGE.get_connect(self.db_name)
+        self.database = CFG.local_db_manager.get_connector(self.db_name)
 
         self.top_k: int = 5
         self.dashboard_template = self.__load_dashboard_template(self.report_name)
@@ -63,14 +63,11 @@ class ChatDashboard(BaseChat):
         try:
             table_infos = await blocking_func_to_async(
                 self._executor,
-                client.get_similar_tables,
+                client.get_db_summary,
                 self.db_name,
                 self.current_user_input,
                 self.top_k,
             )
-            # table_infos = client.get_similar_tables(
-            #     dbname=self.db_name, query=self.current_user_input, topk=self.top_k
-            # )
             print("dashboard vector find tables:{}", table_infos)
         except Exception as e:
             print("db summary find error!" + str(e))

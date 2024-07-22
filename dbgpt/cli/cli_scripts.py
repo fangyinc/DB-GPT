@@ -1,6 +1,7 @@
-import click
 import copy
 import logging
+
+import click
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -59,7 +60,31 @@ def db():
 
 @click.group()
 def new():
-    """New a template"""
+    """New a template."""
+    pass
+
+
+@click.group()
+def app():
+    """Manage your apps(dbgpts)."""
+    pass
+
+
+@click.group()
+def repo():
+    """The repository to install the dbgpts from."""
+    pass
+
+
+@click.group()
+def run():
+    """Run your dbgpts."""
+    pass
+
+
+@click.group()
+def net():
+    """Net tools."""
     pass
 
 
@@ -78,18 +103,22 @@ cli.add_command(stop)
 cli.add_command(install)
 cli.add_command(db)
 cli.add_command(new)
+cli.add_command(app)
+cli.add_command(repo)
+cli.add_command(run)
+cli.add_command(net)
 add_command_alias(stop_all, name="all", parent_group=stop)
 
 try:
     from dbgpt.model.cli import (
-        model_cli_group,
-        start_model_controller,
-        stop_model_controller,
-        start_model_worker,
-        stop_model_worker,
-        start_apiserver,
-        stop_apiserver,
         _stop_all_model_server,
+        model_cli_group,
+        start_apiserver,
+        start_model_controller,
+        start_model_worker,
+        stop_apiserver,
+        stop_model_controller,
+        stop_model_worker,
     )
 
     add_command_alias(model_cli_group, name="model", parent_group=cli)
@@ -107,10 +136,10 @@ except ImportError as e:
 
 try:
     from dbgpt.app._cli import (
-        start_webserver,
-        stop_webserver,
         _stop_all_dbgpt_server,
         migration,
+        start_webserver,
+        stop_webserver,
     )
 
     add_command_alias(start_webserver, name="webserver", parent_group=start)
@@ -143,6 +172,47 @@ try:
     add_command_alias(serve, name="serve", parent_group=new)
 except ImportError as e:
     logging.warning(f"Integrating dbgpt serve command line tool failed: {e}")
+
+
+try:
+    from dbgpt.util.dbgpts.cli import add_repo
+    from dbgpt.util.dbgpts.cli import install as app_install
+    from dbgpt.util.dbgpts.cli import list_all_apps as app_list_remote
+    from dbgpt.util.dbgpts.cli import (
+        list_installed_apps,
+        list_repos,
+        new_dbgpts,
+        remove_repo,
+    )
+    from dbgpt.util.dbgpts.cli import uninstall as app_uninstall
+    from dbgpt.util.dbgpts.cli import update_repo
+
+    add_command_alias(list_repos, name="list", parent_group=repo)
+    add_command_alias(add_repo, name="add", parent_group=repo)
+    add_command_alias(remove_repo, name="remove", parent_group=repo)
+    add_command_alias(update_repo, name="update", parent_group=repo)
+    add_command_alias(app_install, name="install", parent_group=app)
+    add_command_alias(app_uninstall, name="uninstall", parent_group=app)
+    add_command_alias(app_list_remote, name="list-remote", parent_group=app)
+    add_command_alias(list_installed_apps, name="list", parent_group=app)
+    add_command_alias(new_dbgpts, name="app", parent_group=new)
+
+except ImportError as e:
+    logging.warning(f"Integrating dbgpt dbgpts command line tool failed: {e}")
+
+try:
+    from dbgpt.client._cli import flow as run_flow
+
+    add_command_alias(run_flow, name="flow", parent_group=run)
+except ImportError as e:
+    logging.warning(f"Integrating dbgpt client command line tool failed: {e}")
+
+try:
+    from dbgpt.util.network._cli import start_forward
+
+    add_command_alias(start_forward, name="forward", parent_group=net)
+except ImportError as e:
+    logging.warning(f"Integrating dbgpt net command line tool failed: {e}")
 
 
 def main():

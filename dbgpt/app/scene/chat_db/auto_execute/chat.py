@@ -1,8 +1,8 @@
 from typing import Dict
 
-from dbgpt.agent.commands.command_mange import ApiCall
-from dbgpt.app.scene import BaseChat, ChatScene
 from dbgpt._private.config import Config
+from dbgpt.agent.util.api_call import ApiCall
+from dbgpt.app.scene import BaseChat, ChatScene
 from dbgpt.util.executor_utils import blocking_func_to_async
 from dbgpt.util.tracer import root_tracer, trace
 
@@ -37,10 +37,10 @@ class ChatWithDbAutoExecute(BaseChat):
         with root_tracer.start_span(
             "ChatWithDbAutoExecute.get_connect", metadata={"db_name": self.db_name}
         ):
-            self.database = CFG.LOCAL_DB_MANAGE.get_connect(self.db_name)
+            self.database = CFG.local_db_manager.get_connector(self.db_name)
 
         self.top_k: int = 50
-        self.api_call = ApiCall(display_registry=CFG.command_disply)
+        self.api_call = ApiCall()
 
     @trace()
     async def generate_input_values(self) -> Dict:

@@ -1,19 +1,65 @@
-import os
+"""Weaviate vector store."""
 import logging
-from langchain.schema import Document
+import os
+from typing import List, Optional
 
-from dbgpt._private.config import Config
-from dbgpt.configs.model_config import KNOWLEDGE_UPLOAD_ROOT_PATH
-from dbgpt.storage.vector_store.base import VectorStoreBase
+from dbgpt._private.pydantic import ConfigDict, Field
+from dbgpt.core import Chunk
+from dbgpt.core.awel.flow import Parameter, ResourceCategory, register_resource
+from dbgpt.util.i18n_utils import _
+
+from .base import _COMMON_PARAMETERS, VectorStoreBase, VectorStoreConfig
+from .filters import MetadataFilters
 
 logger = logging.getLogger(__name__)
-CFG = Config()
+
+
+@register_resource(
+    _("Weaviate Vector Store"),
+    "weaviate_vector_store",
+    category=ResourceCategory.VECTOR_STORE,
+    description=_("Weaviate vector store."),
+    parameters=[
+        *_COMMON_PARAMETERS,
+        Parameter.build_from(
+            _("Weaviate URL"),
+            "weaviate_url",
+            str,
+            description=_(
+                "weaviate url address, if not set, will use the default url."
+            ),
+            optional=True,
+            default=None,
+        ),
+        Parameter.build_from(
+            _("Persist Path"),
+            "persist_path",
+            str,
+            description=_("the persist path of vector store."),
+            optional=True,
+            default=None,
+        ),
+    ],
+)
+class WeaviateVectorConfig(VectorStoreConfig):
+    """Weaviate vector store config."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    weaviate_url: str = Field(
+        default=os.getenv("WEAVIATE_URL", None),
+        description="weaviate url address, if not set, will use the default url.",
+    )
+    persist_path: str = Field(
+        default=os.getenv("WEAVIATE_PERSIST_PATH", None),
+        description="weaviate persist path.",
+    )
 
 
 class WeaviateStore(VectorStoreBase):
-    """Weaviate database"""
+    """Weaviate database."""
 
-    def __init__(self, ctx: dict) -> None:
+    def __init__(self, vector_store_config: WeaviateVectorConfig) -> None:
         """Initialize with Weaviate client."""
         try:
             import weaviate
@@ -22,19 +68,20 @@ class WeaviateStore(VectorStoreBase):
                 "Could not import weaviate python package. "
                 "Please install it with `pip install weaviate-client`."
             )
-
-        self.ctx = ctx
-        self.weaviate_url = ctx.get("WEAVIATE_URL", os.getenv("WEAVIATE_URL"))
-        self.embedding = ctx.get("embeddings", None)
-        self.vector_name = ctx["vector_store_name"]
+        super().__init__()
+        self.weaviate_url = vector_store_config.weaviate_url
+        self.embedding = vector_store_config.embedding_fn
+        self.vector_name = vector_store_config.name
         self.persist_dir = os.path.join(
-            KNOWLEDGE_UPLOAD_ROOT_PATH, self.vector_name + ".vectordb"
+            vector_store_config.persist_path, vector_store_config.name + ".vectordb"
         )
 
         self.vector_store_client = weaviate.Client(self.weaviate_url)
 
-    def similar_search(self, text: str, topk: int) -> None:
-        """Perform similar search in Weaviate"""
+    def similar_search(
+        self, text: str, topk: int, filters: Optional[MetadataFilters] = None
+    ) -> List[Chunk]:
+        """Perform similar search in Weaviate."""
         logger.info("Weaviate similar search")
         # nearText = {
         #     "concepts": [text],
@@ -52,15 +99,16 @@ class WeaviateStore(VectorStoreBase):
         docs = []
         for r in res:
             docs.append(
-                Document(
-                    page_content=r["page_content"],
+                Chunk(
+                    content=r["page_content"],
                     metadata={"metadata": r["metadata"]},
                 )
             )
         return docs
 
     def vector_name_exists(self) -> bool:
-        """Check if a vector name exists for a given class in Weaviate.
+        """Whether the vector name exists in Weaviate.
+
         Returns:
             bool: True if the vector name exists, False otherwise.
         """
@@ -69,14 +117,15 @@ class WeaviateStore(VectorStoreBase):
                 return True
             return False
         except Exception as e:
-            logger.error("vector_name_exists error", e.message)
+            logger.error(f"vector_name_exists error, {str(e)}")
             return False
 
     def _default_schema(self) -> None:
-        """
-        Create the schema for Weaviate with a Document class containing metadata and text properties.
-        """
+        """Create default schema in Weaviate.
 
+        Create the schema for Weaviate with a Document class containing metadata and
+        text properties.
+        """
         schema = {
             "classes": [
                 {
@@ -120,11 +169,11 @@ class WeaviateStore(VectorStoreBase):
         # Create the schema in Weaviate
         self.vector_store_client.schema.create(schema)
 
-    def load_document(self, documents: list) -> None:
-        """Load documents into Weaviate"""
+    def load_document(self, chunks: List[Chunk]) -> List[str]:
+        """Load document to Weaviate."""
         logger.info("Weaviate load document")
-        texts = [doc.page_content for doc in documents]
-        metadatas = [doc.metadata for doc in documents]
+        texts = [doc.content for doc in chunks]
+        metadatas = [doc.metadata for doc in chunks]
 
         # Import data
         with self.vector_store_client.batch as batch:
@@ -134,10 +183,12 @@ class WeaviateStore(VectorStoreBase):
             for i in range(len(texts)):
                 properties = {
                     "metadata": metadatas[i]["source"],
-                    "page_content": texts[i],
+                    "content": texts[i],
                 }
 
                 self.vector_store_client.batch.add_data_object(
                     data_object=properties, class_name=self.vector_name
                 )
             self.vector_store_client.batch.flush()
+        # TODO: return ids
+        return []

@@ -1,14 +1,16 @@
+from contextlib import asynccontextmanager, contextmanager
+from typing import AsyncIterator, List
+
 import pytest
 import pytest_asyncio
-from typing import AsyncIterator, List
-from contextlib import contextmanager, asynccontextmanager
+
 from .. import (
-    WorkflowRunner,
-    InputOperator,
     DAGContext,
-    TaskState,
     DefaultWorkflowRunner,
+    InputOperator,
     SimpleInputSource,
+    TaskState,
+    WorkflowRunner,
 )
 from ..task.task_impl import _is_async_iterator
 
@@ -64,10 +66,10 @@ async def _create_input_node(**kwargs):
     else:
         outputs = kwargs.get("outputs", ["Hello."])
     nodes = []
-    for output in outputs:
+    for i, output in enumerate(outputs):
         print(f"output: {output}")
         input_source = SimpleInputSource(output)
-        input_node = InputOperator(input_source)
+        input_node = InputOperator(input_source, task_id="input_node_" + str(i))
         nodes.append(input_node)
     yield nodes
 

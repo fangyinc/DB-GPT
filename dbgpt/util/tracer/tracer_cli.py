@@ -1,10 +1,12 @@
-import os
-import click
-import logging
 import glob
 import json
+import logging
+import os
 from datetime import datetime
-from typing import Iterable, Dict, Callable
+from typing import Callable, Dict, Iterable
+
+import click
+
 from dbgpt.configs.model_config import LOGDIR
 from dbgpt.util.tracer import SpanType, SpanTypeRunName
 
@@ -247,7 +249,7 @@ def chat(
     for sp in spans:
         span_type = sp["span_type"]
         metadata = sp.get("metadata")
-        if span_type == SpanType.RUN:
+        if span_type == SpanType.RUN and metadata and "run_service" in metadata:
             service_name = metadata["run_service"]
             service_spans[service_name] = sp.copy()
             if set(service_spans.keys()) == service_names and found_trace_id:

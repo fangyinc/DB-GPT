@@ -1,4 +1,5 @@
 import re
+from typing import Dict
 
 
 def is_all_chinese(text):
@@ -6,6 +7,11 @@ def is_all_chinese(text):
     pattern = re.compile(r"^[一-龥]+$")
     match = re.match(pattern, text)
     return match is not None
+
+
+def contains_chinese(text):
+    """Check if the text contains Chinese characters."""
+    return re.search(r"[\u4e00-\u9fa5]", text) is not None
 
 
 def is_number_chinese(text):
@@ -34,7 +40,7 @@ def is_scientific_notation(string):
         return False
 
 
-def extract_content(long_string, s1, s2, is_include: bool = False):
+def extract_content(long_string, s1, s2, is_include: bool = False) -> Dict[int, str]:
     # extract text
     match_map = {}
     start_index = long_string.find(s1)
@@ -71,6 +77,17 @@ def extract_content_open_ending(long_string, s1, s2, is_include: bool = False):
             match_map[start_index] = extracted_content
         start_index = long_string.find(s1, start_index + 1)
     return match_map
+
+
+def str_to_bool(s):
+    if s.lower() in ("true", "t", "1", "yes", "y"):
+        return True
+    elif s.lower().startswith("true"):
+        return True
+    elif s.lower() in ("false", "f", "0", "no", "n"):
+        return False
+    else:
+        return False
 
 
 def _to_str(x, charset="utf8", errors="strict"):

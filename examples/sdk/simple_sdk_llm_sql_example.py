@@ -1,23 +1,30 @@
 import asyncio
-from typing import Dict, List
 import json
+from typing import Dict, List
+
+from dbgpt.core import SQLOutputParser
 from dbgpt.core.awel import (
     DAG,
     InputOperator,
-    SimpleCallDataInputSource,
     JoinOperator,
     MapOperator,
+    SimpleCallDataInputSource,
 )
-from dbgpt.core import SQLOutputParser, OpenAILLM, RequestBuildOperator, PromptTemplate
-from dbgpt.datasource.rdbms.conn_sqlite import SQLiteTempConnect
-from dbgpt.datasource.operator.datasource_operator import DatasourceOperator
-from dbgpt.rag.operator.datasource import DatasourceRetrieverOperator
+from dbgpt.core.operators import (
+    BaseLLMOperator,
+    PromptBuilderOperator,
+    RequestBuilderOperator,
+)
+from dbgpt.datasource.operators.datasource_operator import DatasourceOperator
+from dbgpt.datasource.rdbms.conn_sqlite import SQLiteTempConnector
+from dbgpt.model.proxy import OpenAILLMClient
+from dbgpt.rag.operators.datasource import DatasourceRetrieverOperator
 
 
 def _create_temporary_connection():
     """Create a temporary database connection for testing."""
-    connect = SQLiteTempConnect.create_temporary_db()
-    connect.create_temp_tables(
+    conn = SQLiteTempConnector.create_temporary_db()
+    conn.create_temp_tables(
         {
             "user": {
                 "columns": {
@@ -35,7 +42,7 @@ def _create_temporary_connection():
             }
         }
     )
-    return connect
+    return conn
 
 
 def _sql_prompt() -> str:
@@ -110,15 +117,15 @@ class SQLResultOperator(JoinOperator[Dict]):
 with DAG("simple_sdk_llm_sql_example") as dag:
     db_connection = _create_temporary_connection()
     input_task = InputOperator(input_source=SimpleCallDataInputSource())
-    retriever_task = DatasourceRetrieverOperator(connection=db_connection)
+    retriever_task = DatasourceRetrieverOperator(connector=db_connection)
     # Merge the input data and the table structure information.
     prompt_input_task = JoinOperator(combine_function=_join_func)
-    prompt_task = PromptTemplate.from_template(_sql_prompt())
-    model_pre_handle_task = RequestBuildOperator(model="gpt-3.5-turbo")
-    llm_task = OpenAILLM()
+    prompt_task = PromptBuilderOperator(_sql_prompt())
+    model_pre_handle_task = RequestBuilderOperator(model="gpt-3.5-turbo")
+    llm_task = BaseLLMOperator(OpenAILLMClient())
     out_parse_task = SQLOutputParser()
     sql_parse_task = MapOperator(map_function=lambda x: x["sql"])
-    db_query_task = DatasourceOperator(connection=db_connection)
+    db_query_task = DatasourceOperator(connector=db_connection)
     sql_result_task = SQLResultOperator()
     input_task >> prompt_input_task
     input_task >> retriever_task >> prompt_input_task
@@ -137,12 +144,10 @@ with DAG("simple_sdk_llm_sql_example") as dag:
 
 if __name__ == "__main__":
     input_data = {
-        "data": {
-            "db_name": "test_db",
-            "dialect": "sqlite",
-            "top_k": 5,
-            "user_input": "What is the name and age of the user with age less than 18",
-        }
+        "db_name": "test_db",
+        "dialect": "sqlite",
+        "top_k": 5,
+        "user_input": "What is the name and age of the user with age less than 18",
     }
     output = asyncio.run(sql_result_task.call(call_data=input_data))
     print(f"\nthoughts: {output.get('thoughts')}\n")

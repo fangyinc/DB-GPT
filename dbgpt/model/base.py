@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from enum import Enum
-from typing import TypedDict, Optional, Dict, List, Any
-
-from dataclasses import dataclass, asdict
-import time
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Optional
+
 from dbgpt.util.parameter_utils import ParameterDescription
-from dbgpt.util.model_utils import GPUInfo
 
 
 class ModelType:
@@ -34,6 +32,10 @@ class ModelInstance:
     enabled: Optional[bool] = True
     prompt_template: Optional[str] = None
     last_heartbeat: Optional[datetime] = None
+
+    def to_dict(self) -> Dict:
+        """Convert to dict"""
+        return asdict(self)
 
 
 class WorkerApplyType(str, Enum):
@@ -61,7 +63,7 @@ class WorkerApplyOutput:
             return WorkerApplyOutput("Not outputs")
         combined_success = all(out.success for out in outs)
         max_timecost = max(out.timecost for out in outs)
-        combined_message = ", ".join(out.message for out in outs)
+        combined_message = "\n;".join(out.message for out in outs)
         return WorkerApplyOutput(combined_message, combined_success, max_timecost)
 
 

@@ -1,7 +1,12 @@
 from contextlib import contextmanager
-from typing import TypeVar, Generic, Any, Optional, Dict, Union, List
+from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union
+
 from sqlalchemy.orm.session import Session
+
+from dbgpt._private.pydantic import model_to_dict
 from dbgpt.util.pagination_utils import PaginationResult
+
+from .db_manager import BaseQuery, DatabaseManager, db
 
 # The entity type
 T = TypeVar("T")
@@ -9,8 +14,6 @@ T = TypeVar("T")
 REQ = TypeVar("REQ")
 # The response schema type
 RES = TypeVar("RES")
-
-from .db_manager import db, DatabaseManager, BaseQuery
 
 
 QUERY_SPEC = Union[REQ, Dict[str, Any]]
@@ -21,6 +24,7 @@ class BaseDao(Generic[T, REQ, RES]):
 
     Examples:
         .. code-block:: python
+
             class UserDao(BaseDao):
                 def get_user_by_name(self, name: str) -> User:
                     with self.session() as session:
@@ -41,6 +45,7 @@ class BaseDao(Generic[T, REQ, RES]):
         self,
         db_manager: Optional[DatabaseManager] = None,
     ) -> None:
+        """Create a BaseDao instance."""
         self._db_manager = db_manager or db
 
     def get_raw_session(self) -> Session:
@@ -49,27 +54,33 @@ class BaseDao(Generic[T, REQ, RES]):
         Your should commit or rollback the session manually.
         We suggest you use :meth:`session` instead.
 
-
         Example:
             .. code-block:: python
+
                 user = User(name="Edward Snowden")
                 session = self.get_raw_session()
                 session.add(user)
                 session.commit()
                 session.close()
         """
-        return self._db_manager._session()
+        return self._db_manager._session()  # type: ignore
 
     @contextmanager
-    def session(self) -> Session:
+    def session(self, commit: Optional[bool] = True) -> Iterator[Session]:
         """Provide a transactional scope around a series of operations.
 
-        If raise an exception, the session will be roll back automatically, otherwise it will be committed.
+        If raise an exception, the session will be roll back automatically, otherwise
+        it will be committed.
 
         Example:
             .. code-block:: python
+
                 with self.session() as session:
-                    session.query(User).filter(User.name == 'Edward Snowden').first()
+                    session.query(User).filter(User.name == "Edward Snowden").first()
+
+        Args:
+            commit (Optional[bool], optional): Whether to commit the session. Defaults
+                to True.
 
         Returns:
             Session: A session object.
@@ -77,7 +88,7 @@ class BaseDao(Generic[T, REQ, RES]):
         Raises:
             Exception: Any exception will be raised.
         """
-        with self._db_manager.session() as session:
+        with self._db_manager.session(commit=commit) as session:
             yield session
 
     def from_request(self, request: QUERY_SPEC) -> T:
@@ -134,9 +145,12 @@ class BaseDao(Generic[T, REQ, RES]):
             RES: The response schema object.
         """
         entry = self.from_request(request)
-        with self.session() as session:
+        with self.session(commit=False) as session:
             session.add(entry)
-            return self.get_one(self.to_request(entry))
+            req = self.to_request(entry)
+            session.commit()
+            res = self.get_one(req)
+            return res  # type: ignore
 
     def update(self, query_request: QUERY_SPEC, update_request: REQ) -> RES:
         """Update an entity object.
@@ -152,11 +166,14 @@ class BaseDao(Generic[T, REQ, RES]):
             entry = query.first()
             if entry is None:
                 raise Exception("Invalid request")
-            for key, value in update_request.dict().items():
+            for key, value in model_to_dict(update_request).items():  # type: ignore
                 if value is not None:
                     setattr(entry, key, value)
             session.merge(entry)
-            return self.get_one(self.to_request(entry))
+            res = self.get_one(self.to_request(entry))
+            if not res:
+                raise Exception("Update failed")
+            return res
 
     def delete(self, query_request: QUERY_SPEC) -> None:
         """Delete an entity object.
@@ -168,7 +185,8 @@ class BaseDao(Generic[T, REQ, RES]):
             result_list = self._get_entity_list(session, query_request)
             if len(result_list) != 1:
                 raise ValueError(
-                    f"Delete request should return one result, but got {len(result_list)}"
+                    f"Delete request should return one result, but got "
+                    f"{len(result_list)}"
                 )
             session.delete(result_list[0])
 
@@ -230,11 +248,11 @@ class BaseDao(Generic[T, REQ, RES]):
             query = self._create_query_object(session, query_request)
             total_count = query.count()
             items = query.offset((page - 1) * page_size).limit(page_size)
-            items = [self.to_response(item) for item in items]
+            res_items = [self.to_response(item) for item in items]
             total_pages = (total_count + page_size - 1) // page_size
 
             return PaginationResult(
-                items=items,
+                items=res_items,
                 total_count=total_count,
                 total_pages=total_pages,
                 page=page,
@@ -255,9 +273,13 @@ class BaseDao(Generic[T, REQ, RES]):
         model_cls = type(self.from_request(query_request))
         query = session.query(model_cls)
         query_dict = (
-            query_request if isinstance(query_request, dict) else query_request.dict()
+            query_request
+            if isinstance(query_request, dict)
+            else model_to_dict(query_request)
         )
         for key, value in query_dict.items():
             if value is not None:
+                if isinstance(value, (list, tuple, dict, set)):
+                    continue
                 query = query.filter(getattr(model_cls, key) == value)
-        return query
+        return query  # type: ignore

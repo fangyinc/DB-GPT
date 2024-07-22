@@ -1,13 +1,21 @@
+"""Component module for dbgpt.
+
+Manages the lifecycle and registration of components.
+"""
+
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-import sys
-from typing import Type, Dict, TypeVar, Optional, Union, TYPE_CHECKING
-from enum import Enum
-import logging
 import asyncio
-from dbgpt.util.annotations import PublicAPI
+import atexit
+import logging
+import sys
+import threading
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import TYPE_CHECKING, Dict, Optional, Type, TypeVar, Union
+
 from dbgpt.util import AppConfig
+from dbgpt.util.annotations import PublicAPI
 
 # Checking for type hints during runtime
 if TYPE_CHECKING:
@@ -17,10 +25,28 @@ logger = logging.getLogger(__name__)
 
 
 class LifeCycle:
-    """This class defines hooks for lifecycle events of a component."""
+    """This class defines hooks for lifecycle events of a component.
+
+    Execution order of lifecycle hooks:
+    1. on_init
+    2. before_start(async_before_start)
+    3. after_start(async_after_start)
+    4. before_stop(async_before_stop)
+    """
+
+    def on_init(self):
+        """Called when the component is being initialized."""
+        pass
+
+    async def async_on_init(self):
+        """Asynchronous version of on_init."""
+        pass
 
     def before_start(self):
-        """Called before the component starts."""
+        """Called before the component starts.
+
+        This method is called after the component has been initialized and before it is started.
+        """
         pass
 
     async def async_before_start(self):
@@ -51,13 +77,21 @@ class ComponentType(str, Enum):
     MODEL_REGISTRY = "dbgpt_model_registry"
     MODEL_API_SERVER = "dbgpt_model_api_server"
     MODEL_CACHE_MANAGER = "dbgpt_model_cache_manager"
-    AGENT_HUB = "dbgpt_agent_hub"
+    PLUGIN_HUB = "dbgpt_plugin_hub"
+    MULTI_AGENTS = "dbgpt_multi_agents"
     EXECUTOR_DEFAULT = "dbgpt_thread_pool_default"
     TRACER = "dbgpt_tracer"
     TRACER_SPAN_STORAGE = "dbgpt_tracer_span_storage"
     RAG_GRAPH_DEFAULT = "dbgpt_rag_engine_default"
     AWEL_TRIGGER_MANAGER = "dbgpt_awel_trigger_manager"
     AWEL_DAG_MANAGER = "dbgpt_awel_dag_manager"
+    UNIFIED_METADATA_DB_MANAGER_FACTORY = "dbgpt_unified_metadata_db_manager_factory"
+    CONNECTOR_MANAGER = "dbgpt_connector_manager"
+    AGENT_MANAGER = "dbgpt_agent_manager"
+    RESOURCE_MANAGER = "dbgpt_resource_manager"
+
+
+_EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 
 
 @PublicAPI(stability="beta")
@@ -78,10 +112,45 @@ class BaseComponent(LifeCycle, ABC):
         with the main system app.
         """
 
+    @classmethod
+    def get_instance(
+        cls: Type[T],
+        system_app: SystemApp,
+        default_component=_EMPTY_DEFAULT_COMPONENT,
+        or_register_component: Optional[Type[T]] = None,
+        *args,
+        **kwargs,
+    ) -> T:
+        """Get the current component instance.
+
+        Args:
+            system_app (SystemApp): The system app
+            default_component : The default component instance if not retrieve by name
+            or_register_component (Type[T]): The new component to register if not retrieve by name
+
+        Returns:
+            T: The component instance
+        """
+        # Check for keyword argument conflicts
+        if "default_component" in kwargs:
+            raise ValueError(
+                "default_component argument given in both fixed and **kwargs"
+            )
+        if "or_register_component" in kwargs:
+            raise ValueError(
+                "or_register_component argument given in both fixed and **kwargs"
+            )
+        kwargs["default_component"] = default_component
+        kwargs["or_register_component"] = or_register_component
+        return system_app.get_component(
+            cls.name,
+            cls,
+            *args,
+            **kwargs,
+        )
+
 
 T = TypeVar("T", bound=BaseComponent)
-
-_EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 
 
 @PublicAPI(stability="beta")
@@ -98,6 +167,9 @@ class SystemApp(LifeCycle):
         ] = {}  # Dictionary to store registered components.
         self._asgi_app = asgi_app
         self._app_config = app_config or AppConfig()
+        self._stop_event = threading.Event()
+        self._stop_event.clear()
+        self._build()
 
     @property
     def app(self) -> Optional["FastAPI"]:
@@ -109,11 +181,11 @@ class SystemApp(LifeCycle):
         """Returns the internal AppConfig."""
         return self._app_config
 
-    def register(self, component: Type[BaseComponent], *args, **kwargs) -> T:
+    def register(self, component: Type[T], *args, **kwargs) -> T:
         """Register a new component by its type.
 
         Args:
-            component (Type[BaseComponent]): The component class to register
+            component (Type[T]): The component class to register
 
         Returns:
             T: The instance of registered component
@@ -146,9 +218,9 @@ class SystemApp(LifeCycle):
     def get_component(
         self,
         name: Union[str, ComponentType],
-        component_type: Type[T],
+        component_type: Type,
         default_component=_EMPTY_DEFAULT_COMPONENT,
-        or_register_component: Type[BaseComponent] = None,
+        or_register_component: Optional[Type[T]] = None,
         *args,
         **kwargs,
     ) -> T:
@@ -158,7 +230,7 @@ class SystemApp(LifeCycle):
             name (Union[str, ComponentType]): Component name
             component_type (Type[T]): The type of current retrieve component
             default_component : The default component instance if not retrieve by name
-            or_register_component (Type[BaseComponent]): The new component to register if not retrieve by name
+            or_register_component (Type[T]): The new component to register if not retrieve by name
 
         Returns:
             T: The instance retrieved by component name
@@ -175,6 +247,16 @@ class SystemApp(LifeCycle):
         if not isinstance(component, component_type):
             raise TypeError(f"Component {name} is not of type {component_type}")
         return component
+
+    def on_init(self):
+        """Invoke the on_init hooks for all registered components."""
+        for _, v in self.components.items():
+            v.on_init()
+
+    async def async_on_init(self):
+        """Asynchronously invoke the on_init hooks for all registered components."""
+        tasks = [v.async_on_init() for _, v in self.components.items()]
+        await asyncio.gather(*tasks)
 
     def before_start(self):
         """Invoke the before_start hooks for all registered components."""
@@ -198,11 +280,14 @@ class SystemApp(LifeCycle):
 
     def before_stop(self):
         """Invoke the before_stop hooks for all registered components."""
+        if self._stop_event.is_set():
+            return
         for _, v in self.components.items():
             try:
                 v.before_stop()
             except Exception as e:
                 pass
+        self._stop_event.set()
 
     async def async_before_stop(self):
         """Asynchronously invoke the before_stop hooks for all registered components."""
@@ -212,9 +297,10 @@ class SystemApp(LifeCycle):
     def _build(self):
         """Integrate lifecycle events with the internal ASGI app if available."""
         if not self.app:
+            self._register_exit_handler()
             return
+        from dbgpt.util.fastapi import register_event_handler
 
-        @self.app.on_event("startup")
         async def startup_event():
             """ASGI app startup event handler."""
 
@@ -228,8 +314,14 @@ class SystemApp(LifeCycle):
             asyncio.create_task(_startup_func())
             self.after_start()
 
-        @self.app.on_event("shutdown")
         async def shutdown_event():
             """ASGI app shutdown event handler."""
             await self.async_before_stop()
             self.before_stop()
+
+        register_event_handler(self.app, "startup", startup_event)
+        register_event_handler(self.app, "shutdown", shutdown_event)
+
+    def _register_exit_handler(self):
+        """Register an exit handler to stop the system app."""
+        atexit.register(self.before_stop)

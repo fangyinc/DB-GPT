@@ -1,8 +1,9 @@
-from typing import Dict, Any, Awaitable, Callable, Optional, Iterator
-import httpx
 import asyncio
-import logging
 import json
+import logging
+from typing import Any, Awaitable, Callable, Dict, Iterator, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 MessageCaller = Callable[[str], Awaitable[None]]
@@ -44,11 +45,20 @@ async def _do_chat_completion(
                     decoded_line = line.split("data: ", 1)[1]
                     if decoded_line.lower().strip() != "[DONE]".lower():
                         obj = json.loads(decoded_line)
-                        if obj["choices"][0]["delta"].get("content") is not None:
-                            text = obj["choices"][0]["delta"].get("content")
+                        if "error_code" in obj and obj["error_code"] != 0:
                             if caller:
-                                await caller(text)
-                            yield text
+                                await caller(obj.get("text"))
+                            yield obj.get("text")
+                        else:
+                            if (
+                                "choices" in obj
+                                and obj["choices"][0]["delta"].get("content")
+                                is not None
+                            ):
+                                text = obj["choices"][0]["delta"].get("content")
+                                if caller:
+                                    await caller(text)
+                                yield text
             await asyncio.sleep(0.02)
 
 

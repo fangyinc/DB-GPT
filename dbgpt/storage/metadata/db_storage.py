@@ -1,28 +1,34 @@
+"""Database storage implementation using SQLAlchemy."""
 from contextlib import contextmanager
+from typing import Dict, Iterator, List, Optional, Type, Union
 
-from typing import Type, List, Optional, Union, Dict
+from sqlalchemy import URL
+from sqlalchemy.orm import DeclarativeMeta, Session
+
 from dbgpt.core import Serializer
 from dbgpt.core.interface.storage import (
-    StorageInterface,
     QuerySpec,
     ResourceIdentifier,
+    StorageInterface,
     StorageItemAdapter,
     T,
 )
-from sqlalchemy import URL
-from sqlalchemy.orm import Session, DeclarativeMeta
 
-from .db_manager import BaseModel, DatabaseManager, BaseQuery
+from .db_manager import BaseModel, BaseQuery, DatabaseManager
 
 
 def _copy_public_properties(src: BaseModel, dest: BaseModel):
-    """Simple copy public properties from src to dest"""
-    for column in src.__table__.columns:
+    """Copy public properties from src to dest."""
+    for column in src.__table__.columns:  # type: ignore
         if column.name != "id":
-            setattr(dest, column.name, getattr(src, column.name))
+            value = getattr(src, column.name)
+            if value is not None:
+                setattr(dest, column.name, value)
 
 
 class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
+    """Database storage implementation using SQLAlchemy."""
+
     def __init__(
         self,
         db_url_or_db: Union[str, URL, DatabaseManager],
@@ -33,35 +39,41 @@ class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
         base: Optional[DeclarativeMeta] = None,
         query_class=BaseQuery,
     ):
+        """Create a SQLAlchemyStorage instance."""
         super().__init__(serializer=serializer, adapter=adapter)
-        if isinstance(db_url_or_db, str) or isinstance(db_url_or_db, URL):
-            db_manager = DatabaseManager()
-            db_manager.init_db(db_url_or_db, engine_args, base, query_class)
-            self.db_manager = db_manager
-        elif isinstance(db_url_or_db, DatabaseManager):
-            self.db_manager = db_url_or_db
-        else:
-            raise ValueError(
-                f"db_url_or_db should be either url or a DatabaseManager, got {type(db_url_or_db)}"
-            )
+        self.db_manager = DatabaseManager.build_from(
+            db_url_or_db, engine_args, base, query_class
+        )
         self._model_class = model_class
 
     @contextmanager
-    def session(self) -> Session:
+    def session(self) -> Iterator[Session]:
+        """Return a session."""
         with self.db_manager.session() as session:
             yield session
 
     def save(self, data: T) -> None:
+        """Save data to the storage."""
         with self.session() as session:
             model_instance = self.adapter.to_storage_format(data)
             session.add(model_instance)
 
     def update(self, data: T) -> None:
+        """Update data in the storage."""
         with self.session() as session:
-            model_instance = self.adapter.to_storage_format(data)
-            session.merge(model_instance)
+            query = self.adapter.get_query_for_identifier(
+                self._model_class, data.identifier, session=session
+            )
+            exist_model_instance = query.with_session(session).first()
+            if exist_model_instance:
+                _copy_public_properties(
+                    self.adapter.to_storage_format(data), exist_model_instance
+                )
+                session.merge(exist_model_instance)
+                return
 
     def save_or_update(self, data: T) -> None:
+        """Save or update data in the storage."""
         with self.session() as session:
             query = self.adapter.get_query_for_identifier(
                 self._model_class, data.identifier, session=session
@@ -75,6 +87,7 @@ class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
         self.save(data)
 
     def load(self, resource_id: ResourceIdentifier, cls: Type[T]) -> Optional[T]:
+        """Load data by identifier from the storage."""
         with self.session() as session:
             query = self.adapter.get_query_for_identifier(
                 self._model_class, resource_id, session=session
@@ -85,6 +98,7 @@ class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
             return None
 
     def delete(self, resource_id: ResourceIdentifier) -> None:
+        """Delete data by identifier from the storage."""
         with self.session() as session:
             query = self.adapter.get_query_for_identifier(
                 self._model_class, resource_id, session=session

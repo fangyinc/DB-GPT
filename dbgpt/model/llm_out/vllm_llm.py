@@ -1,9 +1,9 @@
-from typing import Dict
 import os
-from vllm import AsyncLLMEngine
-from vllm.utils import random_uuid
-from vllm.sampling_params import SamplingParams
+from typing import Dict
 
+from vllm import AsyncLLMEngine
+from vllm.sampling_params import SamplingParams
+from vllm.utils import random_uuid
 
 _IS_BENCHMARK = os.getenv("DB_GPT_MODEL_BENCHMARK", "False").lower() == "true"
 
@@ -61,9 +61,7 @@ async def generate_stream(
         **gen_params
     )
 
-    results_generator = model.generate(
-        prompt, sampling_params, request_id, prompt_token_ids=prompt_token_ids
-    )
+    results_generator = model.generate(prompt, sampling_params, request_id)
     async for request_output in results_generator:
         prompt = request_output.prompt
         if echo:

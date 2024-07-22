@@ -1,7 +1,7 @@
 from typing import Dict
 
-from dbgpt.app.scene import BaseChat, ChatScene
 from dbgpt._private.config import Config
+from dbgpt.app.scene import BaseChat, ChatScene
 from dbgpt.util.executor_utils import blocking_func_to_async
 from dbgpt.util.tracer import trace
 
@@ -10,6 +10,8 @@ CFG = Config()
 
 class ChatWithDbQA(BaseChat):
     chat_scene: str = ChatScene.ChatWithDbQA.value()
+
+    keep_end_rounds = 5
 
     """As a DBA, Chat DB Module, chat with combine DB meta schema """
 
@@ -27,15 +29,20 @@ class ChatWithDbQA(BaseChat):
         super().__init__(chat_param=chat_param)
 
         if self.db_name:
-            self.database = CFG.LOCAL_DB_MANAGE.get_connect(self.db_name)
-            self.db_connect = self.database.session
+            self.database = CFG.local_db_manager.get_connector(self.db_name)
             self.tables = self.database.get_table_names()
-
-        self.top_k = (
-            CFG.KNOWLEDGE_SEARCH_TOP_SIZE
-            if len(self.tables) > CFG.KNOWLEDGE_SEARCH_TOP_SIZE
-            else len(self.tables)
-        )
+        if self.database.is_graph_type():
+            # When the current graph database retrieves source data from ChatDB, the topk uses the sum of node table and edge table.
+            self.top_k = len(self.tables["vertex_tables"]) + len(
+                self.tables["edge_tables"]
+            )
+        else:
+            print(self.database.db_type)
+            self.top_k = (
+                CFG.KNOWLEDGE_SEARCH_TOP_SIZE
+                if len(self.tables) > CFG.KNOWLEDGE_SEARCH_TOP_SIZE
+                else len(self.tables)
+            )
 
     @trace()
     async def generate_input_values(self) -> Dict:

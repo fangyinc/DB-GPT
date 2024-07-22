@@ -1,20 +1,73 @@
+"""Base classes for task-related objects."""
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import (
-    TypeVar,
-    Generic,
-    Optional,
-    AsyncIterator,
-    Union,
-    Callable,
     Any,
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
     Dict,
+    Generic,
+    Iterable,
     List,
+    Optional,
+    TypeVar,
+    Union,
 )
 
 IN = TypeVar("IN")
 OUT = TypeVar("OUT")
 T = TypeVar("T")
+
+
+class _EMPTY_DATA_TYPE:
+    """A special type to represent empty data."""
+
+    def __init__(self, name: str = "EMPTY_DATA"):
+        self.name = name
+
+    def __bool__(self):
+        return False
+
+    def __str__(self):
+        return f"EmptyData({self.name})"
+
+    def is_same(self, obj: Any) -> bool:
+        """Check if the object is the same as the current object.
+
+        Args:
+            obj (Any): The object to compare with.
+
+        Returns:
+            bool: True if the object is the same as the current object, False otherwise.
+        """
+        if not isinstance(obj, _EMPTY_DATA_TYPE):
+            return False
+        return self == obj
+
+
+EMPTY_DATA = _EMPTY_DATA_TYPE("EMPTY_DATA")
+SKIP_DATA = _EMPTY_DATA_TYPE("SKIP_DATA")
+PLACEHOLDER_DATA = _EMPTY_DATA_TYPE("PLACEHOLDER_DATA")
+
+
+def is_empty_data(data: Any):
+    """Check if the data is empty."""
+    if isinstance(data, _EMPTY_DATA_TYPE):
+        return data in (EMPTY_DATA, SKIP_DATA)
+    elif hasattr(data, "empty"):
+        return getattr(data, "empty", False)
+    return False
+
+
+MapFunc = Union[Callable[[IN], OUT], Callable[[IN], Awaitable[OUT]]]
+ReduceFunc = Union[Callable[[IN, IN], OUT], Callable[[IN, IN], Awaitable[OUT]]]
+StreamFunc = Callable[[IN], Awaitable[AsyncIterator[OUT]]]
+UnStreamFunc = Callable[[AsyncIterator[IN]], OUT]
+TransformFunc = Callable[[AsyncIterator[IN]], Awaitable[AsyncIterator[OUT]]]
+PredicateFunc = Union[Callable[[IN], bool], Callable[[IN], Awaitable[bool]]]
+JoinFunc = Union[Callable[..., OUT], Callable[..., Awaitable[OUT]]]
 
 
 class TaskState(str, Enum):
@@ -33,8 +86,8 @@ class TaskState(str, Enum):
 class TaskOutput(ABC, Generic[T]):
     """Abstract base class representing the output of a task.
 
-    This class encapsulates the output of a task and provides methods to access the output data.
-    It can be subclassed to implement specific output behaviors.
+    This class encapsulates the output of a task and provides methods to access the
+    output data.It can be subclassed to implement specific output behaviors.
     """
 
     @property
@@ -56,20 +109,30 @@ class TaskOutput(ABC, Generic[T]):
         return False
 
     @property
-    def output(self) -> Optional[T]:
+    def is_none(self) -> bool:
+        """Check if the output is None.
+
+        Returns:
+            bool: True if the output is None, False otherwise.
+        """
+        return False
+
+    @property
+    def output(self) -> T:
         """Return the output of the task.
 
         Returns:
-            T: The output of the task. None if the output is empty.
+            T: The output of the task.
         """
         raise NotImplementedError
 
     @property
-    def output_stream(self) -> Optional[AsyncIterator[T]]:
+    def output_stream(self) -> AsyncIterator[T]:
         """Return the output of the task as an asynchronous stream.
 
         Returns:
-            AsyncIterator[T]: An asynchronous iterator over the output. None if the output is empty.
+            AsyncIterator[T]: An asynchronous iterator over the output. None if the
+                output is empty.
         """
         raise NotImplementedError
 
@@ -83,39 +146,38 @@ class TaskOutput(ABC, Generic[T]):
 
     @abstractmethod
     def new_output(self) -> "TaskOutput[T]":
-        """Create new output object"""
+        """Create new output object."""
 
-    async def map(self, map_func) -> "TaskOutput[T]":
+    async def map(self, map_func: MapFunc) -> "TaskOutput[OUT]":
         """Apply a mapping function to the task's output.
 
         Args:
-            map_func: A function to apply to the task's output.
+            map_func (MapFunc): A function to apply to the task's output.
 
         Returns:
-            TaskOutput[T]: The result of applying the mapping function.
+            TaskOutput[OUT]: The result of applying the mapping function.
         """
         raise NotImplementedError
 
-    async def reduce(self, reduce_func) -> "TaskOutput[T]":
+    async def reduce(self, reduce_func: ReduceFunc) -> "TaskOutput[OUT]":
         """Apply a reducing function to the task's output.
 
-        Stream TaskOutput to Nonstream TaskOutput.
+        Stream TaskOutput to no stream TaskOutput.
 
         Args:
             reduce_func: A reducing function to apply to the task's output.
 
         Returns:
-            TaskOutput[T]: The result of applying the reducing function.
+            TaskOutput[OUT]: The result of applying the reducing function.
         """
         raise NotImplementedError
 
-    async def streamify(
-        self, transform_func: Callable[[T], AsyncIterator[T]]
-    ) -> "TaskOutput[T]":
+    async def streamify(self, transform_func: StreamFunc) -> "TaskOutput[T]":
         """Convert a value of type T to an AsyncIterator[T] using a transform function.
 
         Args:
-            transform_func (Callable[[T], AsyncIterator[T]]): Function to transform a T value into an AsyncIterator[T].
+            transform_func (StreamFunc): Function to transform a T value into an
+                AsyncIterator[OUT].
 
         Returns:
             TaskOutput[T]: The result of applying the reducing function.
@@ -123,38 +185,39 @@ class TaskOutput(ABC, Generic[T]):
         raise NotImplementedError
 
     async def transform_stream(
-        self, transform_func: Callable[[AsyncIterator[T]], AsyncIterator[T]]
-    ) -> "TaskOutput[T]":
-        """Transform an AsyncIterator[T] to another AsyncIterator[T] using a given function.
+        self, transform_func: TransformFunc
+    ) -> "TaskOutput[OUT]":
+        """Transform an AsyncIterator[T] to another AsyncIterator[T].
 
         Args:
-            transform_func (Callable[[AsyncIterator[T]], AsyncIterator[T]]): Function to apply to the AsyncIterator[T].
+            transform_func (Callable[[AsyncIterator[T]], AsyncIterator[T]]): Function to
+                 apply to the AsyncIterator[T].
 
         Returns:
             TaskOutput[T]: The result of applying the reducing function.
         """
         raise NotImplementedError
 
-    async def unstreamify(
-        self, transform_func: Callable[[AsyncIterator[T]], T]
-    ) -> "TaskOutput[T]":
+    async def unstreamify(self, transform_func: UnStreamFunc) -> "TaskOutput[OUT]":
         """Convert an AsyncIterator[T] to a value of type T using a transform function.
 
         Args:
-            transform_func (Callable[[AsyncIterator[T]], T]): Function to transform an AsyncIterator[T] into a T value.
+            transform_func (UnStreamFunc): Function to transform an AsyncIterator[T]
+                into a T value.
 
         Returns:
             TaskOutput[T]: The result of applying the reducing function.
         """
         raise NotImplementedError
 
-    async def check_condition(self, condition_func) -> bool:
+    async def check_condition(self, condition_func) -> "TaskOutput[OUT]":
         """Check if current output meets a given condition.
 
         Args:
             condition_func: A function to determine if the condition is met.
         Returns:
-            bool: True if current output meet the condition, False otherwise.
+            TaskOutput[T]: The result of applying the reducing function.
+                If the condition is not met, return empty output.
         """
         raise NotImplementedError
 
@@ -182,6 +245,9 @@ class TaskContext(ABC, Generic[T]):
 
         Returns:
             InputContext: The InputContext of current task.
+
+        Raises:
+            Exception: If the InputContext is not set.
         """
 
     @abstractmethod
@@ -216,7 +282,7 @@ class TaskContext(ABC, Generic[T]):
 
     @abstractmethod
     def set_current_state(self, task_state: TaskState) -> None:
-        """Set current task state
+        """Set current task state.
 
         Args:
             task_state (TaskState): The task state to be set.
@@ -224,7 +290,7 @@ class TaskContext(ABC, Generic[T]):
 
     @abstractmethod
     def new_ctx(self) -> "TaskContext":
-        """Create new task context
+        """Create new task context.
 
         Returns:
             TaskContext: A new instance of a TaskContext.
@@ -233,14 +299,14 @@ class TaskContext(ABC, Generic[T]):
     @property
     @abstractmethod
     def metadata(self) -> Dict[str, Any]:
-        """Get the metadata of current task
+        """Return the metadata of current task.
 
         Returns:
             Dict[str, Any]: The metadata
         """
 
     def update_metadata(self, key: str, value: Any) -> None:
-        """Update metadata with key and value
+        """Update metadata with key and value.
 
         Args:
             key (str): The key of metadata
@@ -250,15 +316,15 @@ class TaskContext(ABC, Generic[T]):
 
     @property
     def call_data(self) -> Optional[Dict]:
-        """Get the call data for current data"""
+        """Return the call data for current data."""
         return self.metadata.get("call_data")
 
     @abstractmethod
     async def _call_data_to_output(self) -> Optional[TaskOutput[T]]:
-        """Get the call data for current data"""
+        """Get the call data for current data."""
 
     def set_call_data(self, call_data: Dict) -> None:
-        """Set call data for current task"""
+        """Save the call data for current task."""
         self.update_metadata("call_data", call_data)
 
 
@@ -300,7 +366,7 @@ class InputContext(ABC):
         """
 
     @abstractmethod
-    async def reduce(self, reduce_func: Callable[[Any], Any]) -> "InputContext":
+    async def reduce(self, reduce_func: ReduceFunc) -> "InputContext":
         """Apply a reducing function to the inputs.
 
         Args:
@@ -315,7 +381,8 @@ class InputContext(ABC):
         """Filter the inputs based on a provided function.
 
         Args:
-            filter_func (Callable[[Any], bool]): A function that returns True for inputs to keep.
+            filter_func (Callable[[Any], bool]): A function that returns True for
+                inputs to keep.
 
         Returns:
             InputContext: A new InputContext instance with the filtered inputs.
@@ -323,13 +390,15 @@ class InputContext(ABC):
 
     @abstractmethod
     async def predicate_map(
-        self, predicate_func: Callable[[Any], bool], failed_value: Any = None
+        self, predicate_func: PredicateFunc, failed_value: Any = None
     ) -> "InputContext":
         """Predicate the inputs based on a provided function.
 
         Args:
-            predicate_func (Callable[[Any], bool]): A function that returns True for inputs is predicate True.
-            failed_value (Any): The value to be set if the return value of predicate function is False
+            predicate_func (Callable[[Any], bool]): A function that returns True for
+                inputs is predicate True.
+            failed_value (Any): The value to be set if the return value of predicate
+                function is False
         Returns:
             InputContext: A new InputContext instance with the predicate inputs.
         """
@@ -369,3 +438,40 @@ class InputSource(ABC, Generic[T]):
         Returns:
             TaskOutput[T]: The output object read from current source
         """
+
+    @classmethod
+    def from_data(cls, data: T) -> "InputSource[T]":
+        """Create an InputSource from data.
+
+        Args:
+            data (T): The data to create the InputSource from.
+
+        Returns:
+            InputSource[T]: The InputSource created from the data.
+        """
+        from .task_impl import SimpleInputSource
+
+        return SimpleInputSource(data, streaming=False)
+
+    @classmethod
+    def from_iterable(
+        cls, iterable: Union[AsyncIterable[T], Iterable[T]]
+    ) -> "InputSource[T]":
+        """Create an InputSource from an iterable.
+
+        Args:
+            iterable (List[T]): The iterable to create the InputSource from.
+
+        Returns:
+            InputSource[T]: The InputSource created from the iterable.
+        """
+        from .task_impl import SimpleInputSource
+
+        return SimpleInputSource(iterable, streaming=True)
+
+    @classmethod
+    def from_callable(cls) -> "InputSource[T]":
+        """Create an InputSource from a callable."""
+        from .task_impl import SimpleCallDataInputSource
+
+        return SimpleCallDataInputSource()

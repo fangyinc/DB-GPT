@@ -1,12 +1,15 @@
 """This is an auto-generated model file
 You can define your own models and DAOs here
 """
-from typing import Union, Any, Dict
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Index, Text, DateTime
-from dbgpt.storage.metadata import Model, BaseDao, db
+from typing import Any, Dict, Union
+
+from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+
+from dbgpt.storage.metadata import BaseDao, Model, db
+
 from ..api.schemas import ServeRequest, ServerResponse
-from ..config import ServeConfig, SERVER_APP_TABLE_NAME
+from ..config import SERVER_APP_TABLE_NAME, ServeConfig
 
 
 class ServeEntity(Model):
@@ -38,7 +41,9 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             T: The entity
         """
-        request_dict = request.dict() if isinstance(request, ServeRequest) else request
+        request_dict = (
+            request.to_dict() if isinstance(request, ServeRequest) else request
+        )
         entity = ServeEntity(**request_dict)
         # TODO implement your own logic here, transfer the request_dict to an entity
         return entity

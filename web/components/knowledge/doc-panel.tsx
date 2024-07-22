@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Space, Divider, Empty, Spin, Tag, Tooltip, Modal } from 'antd';
-import { DeleteFilled, InteractionFilled, PlusOutlined, ToolFilled, EyeFilled, WarningOutlined } from '@ant-design/icons';
+import { DeleteFilled, InteractionFilled, PlusOutlined, ToolFilled, EyeFilled, WarningOutlined, DeploymentUnitOutlined} from '@ant-design/icons';
 import { apiInterceptors, delDocument, getDocumentList, syncDocument } from '@/client/api';
 import { IDocument, ISpace } from '@/types/knowledge';
 import moment from 'moment';
@@ -56,7 +56,7 @@ export default function DocPanel(props: IProps) {
       }),
     );
     setDocuments(data?.data);
-    setTotal(data?.total);
+    setTotal(data?.total || 0);
     setIsLoading(false);
   }
 
@@ -94,6 +94,9 @@ export default function DocPanel(props: IProps) {
     setArgumentsShow(true);
   };
 
+  const openGraphVisualPage = () => {
+    router.push(`/knowledge/graph/?spaceName=${space.name}`);
+  }
   const renderResultTag = (status: string, result: string) => {
     let color;
     switch (status) {
@@ -104,13 +107,13 @@ export default function DocPanel(props: IProps) {
         color = '#2db7f5';
         break;
       case 'FINISHED':
-        color = '#87d068';
+        color = 'cyan';
         break;
       case 'FAILED':
-        color = 'f50';
+        color = 'red';
         break;
       default:
-        color = 'f50';
+        color = 'red';
         break;
     }
     return (
@@ -175,7 +178,7 @@ export default function DocPanel(props: IProps) {
                 >
                   <p className="mt-2 font-semibold ">{t('Size')}:</p>
                   <p>{document.chunk_size} chunks</p>
-                  <p className="mt-2 font-semibold ">{t('Last_Synch')}:</p>
+                  <p className="mt-2 font-semibold ">{t('Last_Sync')}:</p>
                   <p>{moment(document.last_sync).format('YYYY-MM-DD HH:MM:SS')}</p>
                   <p className="mt-2 mb-2">{renderResultTag(document.status, document.result)}</p>
                 </Card>
@@ -185,7 +188,7 @@ export default function DocPanel(props: IProps) {
           {hasMore && (
             <Divider>
               <span className="cursor-pointer" onClick={loadMoreDocuments}>
-                {t('Load_More')}
+                {t('Load_more')}
               </span>
             </Divider>
           )}
@@ -210,6 +213,9 @@ export default function DocPanel(props: IProps) {
         <Button size="middle" className="flex items-center mx-2" icon={<ToolFilled />} onClick={handleArguments}>
           Arguments
         </Button>
+        {
+          space.vector_type === 'KnowledgeGraph' && (<Button size="middle" className="flex items-center mx-2" icon={<DeploymentUnitOutlined />} onClick={openGraphVisualPage}>{t('View_Graph')}</Button>)
+        }
       </Space>
       <Divider />
       <Spin spinning={isLoading}>{renderDocumentCard()}</Spin>

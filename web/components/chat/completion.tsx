@@ -6,7 +6,7 @@ import ChatFeedback from './chat-feedback';
 import { ChatContext } from '@/app/chat-context';
 import { FeedBack, IChatDialogueMessageSchema } from '@/types/chat';
 import classNames from 'classnames';
-import { Empty, Modal, message, Tooltip } from 'antd';
+import { Modal, message, Tooltip } from 'antd';
 import { renderModelIcon } from './header/model-selector';
 import { cloneDeep } from 'lodash';
 import copy from 'copy-to-clipboard';
@@ -19,6 +19,8 @@ import { CopyOutlined, RedoOutlined } from '@ant-design/icons';
 import { getInitMessage } from '@/utils';
 import { apiInterceptors, getChatFeedBackSelect } from '@/client/api';
 import useSummary from '@/hooks/use-summary';
+import AgentContent from './agent-content';
+import MyEmpty from '../common/MyEmpty';
 
 type Props = {
   messages: IChatDialogueMessageSchema[];
@@ -26,10 +28,11 @@ type Props = {
 };
 
 const Completion = ({ messages, onSubmit }: Props) => {
-  const { dbParam, currentDialogue, scene, model, refreshDialogList, chatId, agentList, docId } = useContext(ChatContext);
+  const { dbParam, currentDialogue, scene, model, refreshDialogList, chatId, agent, docId } = useContext(ChatContext);
   const { t } = useTranslation();
   const searchParams = useSearchParams();
 
+  const flowSelectParam = (searchParams && searchParams.get('select_param')) ?? '';
   const spaceNameOriginal = (searchParams && searchParams.get('spaceNameOriginal')) ?? '';
 
   const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +43,7 @@ const Completion = ({ messages, onSubmit }: Props) => {
 
   const scrollableRef = useRef<HTMLDivElement>(null);
 
+  // const incremental = useMemo(() => scene === 'chat_flow', [scene]);
   const isChartChat = useMemo(() => scene === 'chat_dashboard', [scene]);
 
   const summary = useSummary();
@@ -47,20 +51,27 @@ const Completion = ({ messages, onSubmit }: Props) => {
   const selectParam = useMemo(() => {
     switch (scene) {
       case 'chat_agent':
-        return agentList.join(',');
+        return agent;
       case 'chat_excel':
         return currentDialogue?.select_param;
+      case 'chat_flow':
+        return flowSelectParam;
       default:
         return spaceNameOriginal || dbParam;
     }
-  }, [scene, agentList, currentDialogue, dbParam, spaceNameOriginal]);
+  }, [scene, agent, currentDialogue, dbParam, spaceNameOriginal, flowSelectParam]);
 
-  const handleChat = async (message: string) => {
-    if (isLoading || !message.trim()) return;
+  const handleChat = async (content: string) => {
+    if (isLoading || !content.trim()) return;
+    if (scene === 'chat_agent' && !agent) {
+      message.warning(t('choice_agent_tip'));
+      return;
+    }
     try {
       setIsLoading(true);
-      await onSubmit(message, {
+      await onSubmit(content, {
         select_param: selectParam ?? '',
+        // incremental,
       });
     } finally {
       setIsLoading(false);
@@ -145,6 +156,9 @@ const Completion = ({ messages, onSubmit }: Props) => {
         <div className="flex items-center flex-1 flex-col text-sm leading-6 text-slate-900 dark:text-slate-300 sm:text-base sm:leading-7">
           {showMessages.length ? (
             showMessages.map((content, index) => {
+              if (scene === 'chat_agent') {
+                return <AgentContent key={index} content={content} />;
+              }
               return (
                 <ChatContent
                   key={index}
@@ -156,7 +170,7 @@ const Completion = ({ messages, onSubmit }: Props) => {
                   }}
                 >
                   {content.role === 'view' && (
-                    <div className="flex w-full pt-2 md:pt-4 border-t border-gray-200 mt-2 md:mt-4 pl-2">
+                    <div className="flex w-full border-t border-gray-200 dark:border-theme-dark">
                       {scene === 'chat_knowledge' && content.retry ? (
                         <Button onClick={handleRetry} slots={{ root: IconButton }} slotProps={{ root: { variant: 'plain', color: 'primary' } }}>
                           <RedoOutlined />
@@ -187,18 +201,13 @@ const Completion = ({ messages, onSubmit }: Props) => {
               );
             })
           ) : (
-            <Empty
-              image="/empty.png"
-              imageStyle={{ width: 320, height: 320, margin: '0 auto', maxWidth: '100%', maxHeight: '100%' }}
-              className="flex items-center justify-center flex-col h-full w-full"
-              description="Start a conversation"
-            />
+            <MyEmpty description="Start a conversation" />
           )}
         </div>
       </div>
       <div
         className={classNames(
-          'relative after:absolute after:-top-8 after:h-8 after:w-full after:bg-gradient-to-t after:from-white after:to-transparent dark:after:from-[#212121]',
+          'relative after:absolute after:-top-8 after:h-8 after:w-full after:bg-gradient-to-t after:from-theme-light after:to-transparent dark:after:from-theme-dark',
           {
             'cursor-not-allowed': scene === 'chat_excel' && !currentDialogue?.select_param,
           },

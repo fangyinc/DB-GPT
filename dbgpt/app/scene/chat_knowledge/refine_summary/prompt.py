@@ -1,10 +1,9 @@
-from dbgpt.core.interface.prompt import PromptTemplate
 from dbgpt._private.config import Config
-from dbgpt.app.scene import ChatScene
-
+from dbgpt.app.scene import AppScenePromptTemplateAdapter, ChatScene
 from dbgpt.app.scene.chat_knowledge.refine_summary.out_parser import (
     ExtractRefineSummaryParser,
 )
+from dbgpt.core import ChatPromptTemplate, HumanPromptTemplate
 
 CFG = Config()
 
@@ -19,7 +18,6 @@ _DEFAULT_TEMPLATE_ZH = (
 _DEFAULT_TEMPLATE_EN = """
 We have provided an existing summary up to a certain point: {existing_answer}\nWe have the opportunity to refine the existing summary (only if needed) with some more context below. 
 \nBased on the previous reasoning, please summarize the final conclusion in accordance with points 1.2.and 3.
-
 """
 
 _DEFAULT_TEMPLATE = (
@@ -28,17 +26,21 @@ _DEFAULT_TEMPLATE = (
 
 PROMPT_RESPONSE = """"""
 
-
 PROMPT_NEED_NEED_STREAM_OUT = True
 
-prompt = PromptTemplate(
-    template_scene=ChatScene.ExtractRefineSummary.value(),
-    input_variables=["existing_answer"],
-    response_format=None,
-    template_define=PROMPT_SCENE_DEFINE,
-    template=_DEFAULT_TEMPLATE + PROMPT_RESPONSE,
-    stream_out=PROMPT_NEED_NEED_STREAM_OUT,
-    output_parser=ExtractRefineSummaryParser(is_stream_out=PROMPT_NEED_NEED_STREAM_OUT),
+prompt = ChatPromptTemplate(
+    messages=[
+        # SystemPromptTemplate.from_template(PROMPT_SCENE_DEFINE),
+        HumanPromptTemplate.from_template(_DEFAULT_TEMPLATE + PROMPT_RESPONSE),
+    ]
 )
 
-CFG.prompt_template_registry.register(prompt, is_default=True)
+prompt_adapter = AppScenePromptTemplateAdapter(
+    prompt=prompt,
+    template_scene=ChatScene.ExtractRefineSummary.value(),
+    stream_out=PROMPT_NEED_NEED_STREAM_OUT,
+    output_parser=ExtractRefineSummaryParser(is_stream_out=PROMPT_NEED_NEED_STREAM_OUT),
+    need_historical_messages=False,
+)
+
+CFG.prompt_template_registry.register(prompt_adapter, is_default=True)

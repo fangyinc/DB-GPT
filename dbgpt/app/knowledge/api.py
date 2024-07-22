@@ -1,36 +1,42 @@
+import logging
 import os
 import shutil
 import tempfile
-import logging
+from typing import List
 
-from fastapi import APIRouter, File, UploadFile, Form
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from dbgpt._private.config import Config
+from dbgpt.app.knowledge.request.request import (
+    ChunkQueryRequest,
+    DocumentQueryRequest,
+    DocumentSummaryRequest,
+    DocumentSyncRequest,
+    EntityExtractRequest,
+    GraphVisRequest,
+    KnowledgeDocumentRequest,
+    KnowledgeQueryRequest,
+    KnowledgeSpaceRequest,
+    SpaceArgumentRequest,
+)
+from dbgpt.app.knowledge.request.response import KnowledgeQueryResponse
+from dbgpt.app.knowledge.service import KnowledgeService
+from dbgpt.app.openapi.api_v1.api_v1 import no_stream_generator, stream_generator
+from dbgpt.app.openapi.api_view_model import Result
 from dbgpt.configs.model_config import (
     EMBEDDING_MODEL_CONFIG,
     KNOWLEDGE_UPLOAD_ROOT_PATH,
 )
-from dbgpt.app.openapi.api_v1.api_v1 import no_stream_generator, stream_generator
-
-from dbgpt.app.openapi.api_view_model import Result
-from dbgpt.rag.embedding_engine.embedding_engine import EmbeddingEngine
-from dbgpt.rag.embedding_engine.embedding_factory import EmbeddingFactory
-
-from dbgpt.app.knowledge.service import KnowledgeService
-from dbgpt.app.knowledge.request.request import (
-    KnowledgeQueryRequest,
-    KnowledgeQueryResponse,
-    KnowledgeDocumentRequest,
-    DocumentSyncRequest,
-    ChunkQueryRequest,
-    DocumentQueryRequest,
-    SpaceArgumentRequest,
-    EntityExtractRequest,
-    DocumentSummaryRequest,
-)
-
-from dbgpt.app.knowledge.request.request import KnowledgeSpaceRequest
-from dbgpt.util.tracer import root_tracer, SpanType
+from dbgpt.rag import ChunkParameters
+from dbgpt.rag.embedding.embedding_factory import EmbeddingFactory
+from dbgpt.rag.knowledge.base import ChunkStrategy
+from dbgpt.rag.knowledge.factory import KnowledgeFactory
+from dbgpt.rag.retriever.embedding import EmbeddingRetriever
+from dbgpt.serve.rag.api.schemas import KnowledgeSyncRequest
+from dbgpt.serve.rag.connector import VectorStoreConnector
+from dbgpt.serve.rag.service.service import Service
+from dbgpt.storage.vector_store.base import VectorStoreConfig
+from dbgpt.util.tracer import SpanType, root_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +45,11 @@ router = APIRouter()
 
 
 knowledge_space_service = KnowledgeService()
+
+
+def get_rag_service() -> Service:
+    """Get Rag Service."""
+    return Service.get_instance(CFG.SYSTEM_APP)
 
 
 @router.post("/knowledge/space/add")
@@ -66,7 +77,7 @@ def space_delete(request: KnowledgeSpaceRequest):
     try:
         return Result.succ(knowledge_space_service.delete_space(request.name))
     except Exception as e:
-        return Result.failed(code="E000X", msg=f"space list error {e}")
+        return Result.failed(code="E000X", msg=f"space delete error {e}")
 
 
 @router.post("/knowledge/{space_name}/arguments")
@@ -75,7 +86,7 @@ def arguments(space_name: str):
     try:
         return Result.succ(knowledge_space_service.arguments(space_name))
     except Exception as e:
-        return Result.failed(code="E000X", msg=f"space list error {e}")
+        return Result.failed(code="E000X", msg=f"space arguments error {e}")
 
 
 @router.post("/knowledge/{space_name}/argument/save")
@@ -86,7 +97,7 @@ def arguments_save(space_name: str, argument_request: SpaceArgumentRequest):
             knowledge_space_service.argument_save(space_name, argument_request)
         )
     except Exception as e:
-        return Result.failed(code="E000X", msg=f"space list error {e}")
+        return Result.failed(code="E000X", msg=f"space save error {e}")
 
 
 @router.post("/knowledge/{space_name}/document/add")
@@ -103,6 +114,39 @@ def document_add(space_name: str, request: KnowledgeDocumentRequest):
         return Result.failed(code="E000X", msg=f"document add error {e}")
 
 
+@router.get("/knowledge/document/chunkstrategies")
+def chunk_strategies():
+    """Get chunk strategies"""
+    print(f"/document/chunkstrategies:")
+    try:
+        return Result.succ(
+            [
+                {
+                    "strategy": strategy.name,
+                    "name": strategy.value[2],
+                    "description": strategy.value[3],
+                    "parameters": strategy.value[1],
+                    "suffix": [
+                        knowledge.document_type().value
+                        for knowledge in KnowledgeFactory.subclasses()
+                        if strategy in knowledge.support_chunk_strategy()
+                        and knowledge.document_type() is not None
+                    ],
+                    "type": set(
+                        [
+                            knowledge.type().value
+                            for knowledge in KnowledgeFactory.subclasses()
+                            if strategy in knowledge.support_chunk_strategy()
+                        ]
+                    ),
+                }
+                for strategy in ChunkStrategy
+            ]
+        )
+    except Exception as e:
+        return Result.failed(code="E000X", msg=f"chunk strategies error {e}")
+
+
 @router.post("/knowledge/{space_name}/document/list")
 def document_list(space_name: str, query_request: DocumentQueryRequest):
     print(f"/document/list params: {space_name}, {query_request}")
@@ -114,6 +158,20 @@ def document_list(space_name: str, query_request: DocumentQueryRequest):
         return Result.failed(code="E000X", msg=f"document list error {e}")
 
 
+@router.post("/knowledge/{space_name}/graphvis")
+def graph_vis(space_name: str, query_request: GraphVisRequest):
+    print(f"/document/list params: {space_name}, {query_request}")
+    print(query_request.limit)
+    try:
+        return Result.succ(
+            knowledge_space_service.query_graph(
+                space_name=space_name, limit=query_request.limit
+            )
+        )
+    except Exception as e:
+        return Result.failed(code="E000X", msg=f"get graph vis error {e}")
+
+
 @router.post("/knowledge/{space_name}/document/delete")
 def document_delete(space_name: str, query_request: DocumentQueryRequest):
     print(f"/document/list params: {space_name}, {query_request}")
@@ -122,7 +180,7 @@ def document_delete(space_name: str, query_request: DocumentQueryRequest):
             knowledge_space_service.delete_document(space_name, query_request.doc_name)
         )
     except Exception as e:
-        return Result.failed(code="E000X", msg=f"document list error {e}")
+        return Result.failed(code="E000X", msg=f"document delete error {e}")
 
 
 @router.post("/knowledge/{space_name}/document/upload")
@@ -178,15 +236,52 @@ async def document_upload(
 
 
 @router.post("/knowledge/{space_name}/document/sync")
-def document_sync(space_name: str, request: DocumentSyncRequest):
+async def document_sync(
+    space_name: str,
+    request: DocumentSyncRequest,
+    service: Service = Depends(get_rag_service),
+):
     logger.info(f"Received params: {space_name}, {request}")
     try:
-        knowledge_space_service.sync_knowledge_document(
-            space_name=space_name, sync_request=request
+        space = service.get({"name": space_name})
+        if space is None:
+            return Result.failed(code="E000X", msg=f"space {space_name} not exist")
+        if request.doc_ids is None or len(request.doc_ids) == 0:
+            return Result.failed(code="E000X", msg="doc_ids is None")
+        sync_request = KnowledgeSyncRequest(
+            doc_id=request.doc_ids[0],
+            space_id=str(space.id),
+            model_name=request.model_name,
         )
-        return Result.succ([])
+        sync_request.chunk_parameters = ChunkParameters(
+            chunk_strategy="Automatic",
+            chunk_size=request.chunk_size or 512,
+            chunk_overlap=request.chunk_overlap or 50,
+        )
+        doc_ids = await service.sync_document(requests=[sync_request])
+        return Result.succ(doc_ids)
     except Exception as e:
         return Result.failed(code="E000X", msg=f"document sync error {e}")
+
+
+@router.post("/knowledge/{space_name}/document/sync_batch")
+async def batch_document_sync(
+    space_name: str,
+    request: List[KnowledgeSyncRequest],
+    service: Service = Depends(get_rag_service),
+):
+    logger.info(f"Received params: {space_name}, {request}")
+    try:
+        space = service.get({"name": space_name})
+        for sync_request in request:
+            sync_request.space_id = space.id
+        doc_ids = await service.sync_document(requests=request)
+        # doc_ids = service.sync_document(
+        #     space_name=space_name, sync_requests=request
+        # )
+        return Result.succ({"tasks": doc_ids})
+    except Exception as e:
+        return Result.failed(code="E000X", msg=f"document sync batch error {e}")
 
 
 @router.post("/knowledge/{space_name}/chunk/list")
@@ -204,15 +299,23 @@ def similar_query(space_name: str, query_request: KnowledgeQueryRequest):
     embedding_factory = CFG.SYSTEM_APP.get_component(
         "embedding_factory", EmbeddingFactory
     )
-    client = EmbeddingEngine(
-        model_name=EMBEDDING_MODEL_CONFIG[CFG.EMBEDDING_MODEL],
-        vector_store_config={"vector_store_name": space_name},
-        embedding_factory=embedding_factory,
+    config = VectorStoreConfig(
+        name=space_name,
+        embedding_fn=embedding_factory.create(
+            EMBEDDING_MODEL_CONFIG[CFG.EMBEDDING_MODEL]
+        ),
     )
-    docs = client.similar_search(query_request.query, query_request.top_k)
+    vector_store_connector = VectorStoreConnector(
+        vector_store_type=CFG.VECTOR_STORE_TYPE,
+        vector_store_config=config,
+    )
+    retriever = EmbeddingRetriever(
+        top_k=query_request.top_k, index_store=vector_store_connector.index_client
+    )
+    chunks = retriever.retrieve(query_request.query)
     res = [
-        KnowledgeQueryResponse(text=d.page_content, source=d.metadata["source"])
-        for d in docs
+        KnowledgeQueryResponse(text=d.content, source=d.metadata["source"])
+        for d in chunks
     ]
     return {"response": res}
 
@@ -253,9 +356,10 @@ async def document_summary(request: DocumentSummaryRequest):
 async def entity_extract(request: EntityExtractRequest):
     logger.info(f"Received params: {request}")
     try:
-        from dbgpt.app.scene import ChatScene
-        from dbgpt._private.chat_util import llm_chat_response_nostream
         import uuid
+
+        from dbgpt.app.scene import ChatScene
+        from dbgpt.util.chat_util import llm_chat_response_nostream
 
         chat_param = {
             "chat_session_id": uuid.uuid1(),

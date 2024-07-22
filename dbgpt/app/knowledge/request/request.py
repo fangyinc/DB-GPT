@@ -1,7 +1,6 @@
 from typing import List, Optional
 
-from dbgpt._private.pydantic import BaseModel
-from fastapi import UploadFile
+from dbgpt._private.pydantic import BaseModel, ConfigDict
 
 
 class KnowledgeQueryRequest(BaseModel):
@@ -15,6 +14,8 @@ class KnowledgeQueryRequest(BaseModel):
 class KnowledgeSpaceRequest(BaseModel):
     """name: knowledge space name"""
 
+    """vector_type: vector type"""
+    id: int = None
     name: str = None
     """vector_type: vector type"""
     vector_type: str = None
@@ -35,14 +36,13 @@ class KnowledgeDocumentRequest(BaseModel):
     """content: content"""
     source: str = None
 
-    """text_chunk_size: text_chunk_size"""
-    # text_chunk_size: int
-
 
 class DocumentQueryRequest(BaseModel):
     """doc_name: doc path"""
 
     doc_name: str = None
+    """doc_ids: doc ids"""
+    doc_ids: Optional[List] = None
     """doc_type: doc type"""
     doc_type: str = None
     """status: status"""
@@ -53,8 +53,14 @@ class DocumentQueryRequest(BaseModel):
     page_size: int = 20
 
 
+class GraphVisRequest(BaseModel):
+    limit: int = 100
+
+
 class DocumentSyncRequest(BaseModel):
     """Sync request"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     """doc_ids: doc ids"""
     doc_ids: List
@@ -92,16 +98,6 @@ class ChunkQueryRequest(BaseModel):
     page_size: int = 20
 
 
-class KnowledgeQueryResponse:
-    """source: knowledge reference source"""
-
-    source: str
-    """score: knowledge vector query similarity score"""
-    score: float = 0.0
-    """text: raw text info"""
-    text: str
-
-
 class SpaceArgumentRequest(BaseModel):
     """argument: argument"""
 
@@ -111,6 +107,8 @@ class SpaceArgumentRequest(BaseModel):
 class DocumentSummaryRequest(BaseModel):
     """Sync request"""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     """doc_ids: doc ids"""
     doc_id: int
     model_name: str
@@ -119,6 +117,8 @@ class DocumentSummaryRequest(BaseModel):
 
 class EntityExtractRequest(BaseModel):
     """argument: argument"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     text: str
     model_name: str

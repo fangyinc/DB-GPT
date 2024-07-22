@@ -41,9 +41,9 @@ function CompletionInput({ children, loading, onSubmit, handleFinish, ...props }
     setDocuments(data?.data!);
   }
 
-  const onUploadFinish = () => {
+  const onUploadFinish = async () => {
     uploadCountRef.current += 1;
-    fetchDocuments();
+    await fetchDocuments();
   };
 
   return (
@@ -60,6 +60,7 @@ function CompletionInput({ children, loading, onSubmit, handleFinish, ...props }
           if (!userInput.trim()) return;
           if (e.keyCode === 13) {
             if (e.shiftKey) {
+              e.preventDefault()
               setUserInput((state) => state + '\n');
               return;
             }
@@ -78,7 +79,7 @@ function CompletionInput({ children, loading, onSubmit, handleFinish, ...props }
         }}
       />
       <Button
-        className="ml-2 flex items-center justify-center absolute right-2 bottom-0"
+        className="ml-2 flex items-center justify-center absolute right-0 bottom-0"
         size="large"
         type="text"
         loading={loading}

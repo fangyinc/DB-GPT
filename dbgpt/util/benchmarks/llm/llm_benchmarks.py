@@ -1,31 +1,29 @@
-from typing import Dict, List
+import argparse
 import asyncio
+import csv
+import logging
 import os
 import sys
 import time
-import csv
-import argparse
-import logging
 import traceback
-from dbgpt.configs.model_config import ROOT_PATH, LLM_MODEL_CONFIG
 from datetime import datetime
+from typing import Dict, List
 
-from dbgpt.model.cluster.worker.manager import (
-    run_worker_manager,
-    initialize_worker_manager_in_client,
-    WorkerManager,
-)
-
-from dbgpt.core import ModelOutput, ModelInferenceMetrics
+from dbgpt.configs.model_config import LLM_MODEL_CONFIG, ROOT_PATH
+from dbgpt.core import ModelInferenceMetrics, ModelOutput
 from dbgpt.core.interface.message import ModelMessage, ModelMessageRoleType
-
+from dbgpt.model.cluster.worker.manager import (
+    WorkerManager,
+    initialize_worker_manager_in_client,
+    run_worker_manager,
+)
 
 model_name = "vicuna-7b-v1.5"
 model_path = LLM_MODEL_CONFIG[model_name]
 # or vllm
 model_type = "huggingface"
 
-controller_addr = "http://127.0.0.1:5000"
+controller_addr = "http://127.0.0.1:5670"
 
 result_csv_file = None
 
@@ -220,9 +218,9 @@ async def run_model(wh: WorkerManager) -> None:
 
 
 def startup_llm_env():
-    from fastapi import FastAPI
+    from dbgpt.util.fastapi import create_app
 
-    app = FastAPI()
+    app = create_app()
     initialize_worker_manager_in_client(
         app=app,
         model_name=model_name,

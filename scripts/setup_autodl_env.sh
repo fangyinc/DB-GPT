@@ -34,15 +34,15 @@ install_sys_packages() {
 clone_repositories() {
     cd /root && git clone https://github.com/eosphoros-ai/DB-GPT.git
     mkdir -p /root/DB-GPT/models && cd /root/DB-GPT/models
-    git clone https://huggingface.co/GanymedeNil/text2vec-large-chinese
-    git clone https://huggingface.co/THUDM/chatglm2-6b
+    git clone https://www.modelscope.cn/Jerry0/text2vec-large-chinese.git
+    git clone https://www.modelscope.cn/qwen/Qwen2-0.5B-Instruct.git
     rm -rf /root/DB-GPT/models/text2vec-large-chinese/.git
-    rm -rf /root/DB-GPT/models/chatglm2-6b/.git
+    rm -rf /root/DB-GPT/models/Qwen2-0.5B-Instruct/.git
 }
 
 install_dbgpt_packages() {
-    conda activate dbgpt && cd /root/DB-GPT && pip install -e ".[default]"
-    cp .env.template .env && sed -i 's/LLM_MODEL=vicuna-13b-v1.5/LLM_MODEL=chatglm2-6b/' .env
+    conda activate dbgpt && cd /root/DB-GPT && pip install -e ".[default]" && pip install transformers_stream_generator einops
+    cp .env.template .env && sed -i 's/LLM_MODEL=glm-4-9b-chat/LLM_MODEL=qwen2-0.5b-instruct/' .env
 }
 
 clean_up() {
@@ -57,6 +57,8 @@ clean_local_data() {
     rm -rf /root/DB-GPT/pilot/message
     rm -f /root/DB-GPT/logs/*
     rm -f /root/DB-GPT/logsDbChatOutputParser.log
+    rm -rf /root/DB-GPT/pilot/meta_data/alembic/versions/*
+    rm -rf /root/DB-GPT/pilot/meta_data/*.db
 }
 
 usage() {

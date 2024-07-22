@@ -1,15 +1,15 @@
-import signal
-import os
-import threading
-import sys
 import logging
-from typing import Optional
+import os
+import signal
+import sys
+import threading
 from dataclasses import dataclass, field
+from typing import Optional
 
 from dbgpt._private.config import Config
 from dbgpt.component import SystemApp
-from dbgpt.util.parameter_utils import BaseParameters
-
+from dbgpt.storage import DBType
+from dbgpt.util.parameter_utils import BaseServerParameters
 
 ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ROOT_PATH)
@@ -32,110 +32,106 @@ def async_db_summary(system_app: SystemApp):
 
 
 def server_init(param: "WebServerParameters", system_app: SystemApp):
-    from dbgpt.agent.commands.command_mange import CommandRegistry
-
     # logger.info(f"args: {args}")
-
     # init config
     cfg = Config()
     cfg.SYSTEM_APP = system_app
     # Initialize db storage first
-    _initialize_db_storage(param)
+    _initialize_db_storage(param, system_app)
 
     # load_native_plugins(cfg)
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Loader plugins and commands
-    command_categories = [
-        "dbgpt.agent.commands.built_in.audio_text",
-        "dbgpt.agent.commands.built_in.image_gen",
-    ]
-    # exclude commands
-    command_categories = [
-        x for x in command_categories if x not in cfg.disabled_command_categories
-    ]
-    command_registry = CommandRegistry()
-    for command_category in command_categories:
-        command_registry.import_commands(command_category)
-
-    cfg.command_registry = command_registry
-
-    command_disply_commands = [
-        "dbgpt.agent.commands.disply_type.show_chart_gen",
-        "dbgpt.agent.commands.disply_type.show_table_gen",
-        "dbgpt.agent.commands.disply_type.show_text_gen",
-    ]
-    command_disply_registry = CommandRegistry()
-    for command in command_disply_commands:
-        command_disply_registry.import_commands(command)
-    cfg.command_disply = command_disply_registry
-
 
 def _create_model_start_listener(system_app: SystemApp):
-    from dbgpt.datasource.manages.connection_manager import ConnectManager
-
-    cfg = Config()
-
     def startup_event(wh):
-        # init connect manage
         print("begin run _add_app_startup_event")
-        conn_manage = ConnectManager(system_app)
-        cfg.LOCAL_DB_MANAGE = conn_manage
         async_db_summary(system_app)
 
     return startup_event
 
 
-def _initialize_db_storage(param: "WebServerParameters"):
+def _initialize_db_storage(param: "WebServerParameters", system_app: SystemApp):
     """Initialize the db storage.
 
     Now just support sqlite and mysql. If db type is sqlite, the db path is `pilot/meta_data/{db_name}.db`.
     """
-    _initialize_db(try_to_create_db=not param.disable_alembic_upgrade)
+    _initialize_db(
+        try_to_create_db=not param.disable_alembic_upgrade, system_app=system_app
+    )
 
 
 def _migration_db_storage(param: "WebServerParameters"):
     """Migration the db storage."""
     # Import all models to make sure they are registered with SQLAlchemy.
     from dbgpt.app.initialization.db_model_initialization import _MODELS
-
     from dbgpt.configs.model_config import PILOT_PATH
 
     default_meta_data_path = os.path.join(PILOT_PATH, "meta_data")
     if not param.disable_alembic_upgrade:
-        from dbgpt.util._db_migration_utils import _ddl_init_and_upgrade
         from dbgpt.storage.metadata.db_manager import db
+        from dbgpt.util._db_migration_utils import _ddl_init_and_upgrade
 
-        # try to create all tables
-        try:
-            db.create_all()
-        except Exception as e:
-            logger.warning(f"Create all tables stored in this metadata error: {str(e)}")
-        _ddl_init_and_upgrade(default_meta_data_path, param.disable_alembic_upgrade)
+        # Try to create all tables, when the dbtype is sqlite, it will auto create and upgrade system schema,
+        # Otherwise, you need to execute initialization scripts to create schemas.
+        CFG = Config()
+        if CFG.LOCAL_DB_TYPE == "sqlite":
+            try:
+                db.create_all()
+            except Exception as e:
+                logger.warning(
+                    f"Create all tables stored in this metadata error: {str(e)}"
+                )
+
+            _ddl_init_and_upgrade(default_meta_data_path, param.disable_alembic_upgrade)
+        else:
+            warn_msg = """For safety considerations, MySQL Database not support DDL init and upgrade. "
+                "1.If you are use DB-GPT firstly, please manually execute the following command to initialize, 
+                `mysql -h127.0.0.1 -uroot -p{your_password} < ./assets/schema/dbgpt.sql` "
+                "2.If there are any changes to the table columns in the DB-GPT database, 
+                it is necessary to compare with the DB-GPT/assets/schema/dbgpt.sql file 
+                and manually make the columns changes in the MySQL database instance."""
+            logger.warning(warn_msg)
 
 
-def _initialize_db(try_to_create_db: Optional[bool] = False) -> str:
+def _initialize_db(
+    try_to_create_db: Optional[bool] = False, system_app: Optional[SystemApp] = None
+) -> str:
     """Initialize the database
 
-    Now just support sqlite and mysql. If db type is sqlite, the db path is `pilot/meta_data/{db_name}.db`.
+    Now just support sqlite and MySQL. If db type is sqlite, the db path is `pilot/meta_data/{db_name}.db`.
     """
+    from urllib.parse import quote
+    from urllib.parse import quote_plus as urlquote
+
     from dbgpt.configs.model_config import PILOT_PATH
+    from dbgpt.datasource.rdbms.dialect.oceanbase.ob_dialect import (  # noqa: F401
+        OBDialect,
+    )
     from dbgpt.storage.metadata.db_manager import initialize_db
-    from urllib.parse import quote_plus as urlquote, quote
 
     CFG = Config()
     db_name = CFG.LOCAL_DB_NAME
     default_meta_data_path = os.path.join(PILOT_PATH, "meta_data")
     os.makedirs(default_meta_data_path, exist_ok=True)
-    if CFG.LOCAL_DB_TYPE == "mysql":
+    if CFG.LOCAL_DB_TYPE == DBType.MySQL.value():
         db_url = (
             f"mysql+pymysql://{quote(CFG.LOCAL_DB_USER)}:"
             f"{urlquote(CFG.LOCAL_DB_PASSWORD)}@"
             f"{CFG.LOCAL_DB_HOST}:"
             f"{str(CFG.LOCAL_DB_PORT)}/"
-            f"{db_name}?charset=utf8mb4&collation=utf8mb4_unicode_ci"
+            f"{db_name}?charset=utf8mb4"
         )
         # Try to create database, if failed, will raise exception
+        _create_mysql_database(db_name, db_url, try_to_create_db)
+    elif CFG.LOCAL_DB_TYPE == DBType.OceanBase.value():
+        db_url = (
+            f"mysql+ob://{quote(CFG.LOCAL_DB_USER)}:"
+            f"{urlquote(CFG.LOCAL_DB_PASSWORD)}@"
+            f"{CFG.LOCAL_DB_HOST}:"
+            f"{str(CFG.LOCAL_DB_PORT)}/"
+            f"{db_name}?charset=utf8mb4"
+        )
         _create_mysql_database(db_name, db_url, try_to_create_db)
     else:
         sqlite_db_path = os.path.join(default_meta_data_path, f"{db_name}.db")
@@ -147,7 +143,11 @@ def _initialize_db(try_to_create_db: Optional[bool] = False) -> str:
         "pool_recycle": 3600,
         "pool_pre_ping": True,
     }
-    initialize_db(db_url, db_name, engine_args)
+    db = initialize_db(db_url, db_name, engine_args)
+    if system_app:
+        from dbgpt.storage.metadata import UnifiedDBManagerFactory
+
+        system_app.register(UnifiedDBManagerFactory, db)
     return default_meta_data_path
 
 
@@ -162,8 +162,8 @@ def _create_mysql_database(db_name: str, db_url: str, try_to_create_db: bool = F
     Raises:
         Exception: Raise exception if database operation failed
     """
-    from sqlalchemy import create_engine, DDL
-    from sqlalchemy.exc import SQLAlchemyError, OperationalError
+    from sqlalchemy import DDL, create_engine
+    from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
     if not try_to_create_db:
         logger.info(f"Skipping creation of database {db_name}")
@@ -185,7 +185,8 @@ def _create_mysql_database(db_name: str, db_url: str, try_to_create_db: bool = F
                 with engine_no_db.connect() as conn:
                     conn.execute(
                         DDL(
-                            f"CREATE DATABASE {db_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                            f"CREATE DATABASE {db_name} CHARACTER SET utf8mb4 COLLATE "
+                            f"utf8mb4_unicode_ci"
                         )
                     )
                     logger.info(f"Database {db_name} successfully created")
@@ -198,12 +199,12 @@ def _create_mysql_database(db_name: str, db_url: str, try_to_create_db: bool = F
 
 
 @dataclass
-class WebServerParameters(BaseParameters):
+class WebServerParameters(BaseServerParameters):
     host: Optional[str] = field(
         default="0.0.0.0", metadata={"help": "Webserver deploy host"}
     )
     port: Optional[int] = field(
-        default=5000, metadata={"help": "Webserver deploy port"}
+        default=None, metadata={"help": "Webserver deploy port"}
     )
     daemon: Optional[bool] = field(
         default=False, metadata={"help": "Run Webserver in background"}
@@ -211,43 +212,42 @@ class WebServerParameters(BaseParameters):
     controller_addr: Optional[str] = field(
         default=None,
         metadata={
-            "help": "The Model controller address to connect. If None, read model controller address from environment key `MODEL_SERVER`."
+            "help": "The Model controller address to connect. If None, read model "
+            "controller address from environment key `MODEL_SERVER`."
         },
     )
     model_name: str = field(
         default=None,
         metadata={
-            "help": "The default model name to use. If None, read model name from environment key `LLM_MODEL`.",
+            "help": "The default model name to use. If None, read model name from "
+            "environment key `LLM_MODEL`.",
             "tags": "fixed",
         },
     )
     share: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "Whether to create a publicly shareable link for the interface. Creates an SSH tunnel to make your UI accessible from anywhere. "
+            "help": "Whether to create a publicly shareable link for the interface. "
+            "Creates an SSH tunnel to make your UI accessible from anywhere. "
         },
     )
     remote_embedding: Optional[bool] = field(
         default=False,
         metadata={
-            "help": "Whether to enable remote embedding models. If it is True, you need to start a embedding model through `dbgpt start worker --worker_type text2vec --model_name xxx --model_path xxx`"
+            "help": "Whether to enable remote embedding models. If it is True, you need"
+            " to start a embedding model through `dbgpt start worker --worker_type "
+            "text2vec --model_name xxx --model_path xxx`"
         },
     )
-    log_level: Optional[str] = field(
-        default=None,
+    remote_rerank: Optional[bool] = field(
+        default=False,
         metadata={
-            "help": "Logging level",
-            "valid_values": [
-                "FATAL",
-                "ERROR",
-                "WARNING",
-                "WARNING",
-                "INFO",
-                "DEBUG",
-                "NOTSET",
-            ],
+            "help": "Whether to enable remote rerank models. If it is True, you need"
+            " to start a rerank model through `dbgpt start worker --worker_type "
+            "text2vec --rerank --model_name xxx --model_path xxx`"
         },
     )
+
     light: Optional[bool] = field(default=False, metadata={"help": "enable light mode"})
     log_file: Optional[str] = field(
         default="dbgpt_webserver.log",
@@ -271,5 +271,18 @@ class WebServerParameters(BaseParameters):
         default=False,
         metadata={
             "help": "Whether to disable alembic to initialize and upgrade database metadata",
+        },
+    )
+    awel_dirs: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The directories to search awel files, split by `,`",
+        },
+    )
+    default_thread_pool_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "The default thread pool size, If None, "
+            "use default config of python thread pool",
         },
     )
