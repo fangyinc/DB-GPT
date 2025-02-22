@@ -173,73 +173,85 @@ vocabulary_map = {
 
 class ModuleInfo(NamedTuple):
     """Module information container"""
-    base_module: str    # Base module name (e.g., dbgpt)
-    sub_module: str     # Sub module name (e.g., core) or file name without .py
-    full_path: str      # Full path to the module or file
+
+    base_module: str  # Base module name (e.g., dbgpt)
+    sub_module: str  # Sub module name (e.g., core) or file name without .py
+    full_path: str  # Full path to the module or file
+
 
 def find_modules(root_path: str = None) -> List[ModuleInfo]:
     """
     Find all DBGpt modules, including:
     1. First-level submodules (directories with __init__.py)
     2. Python files directly under base module directory
-    
+
     Args:
         root_path: Root path containing the packages directory. If None, uses current ROOT_PATH
-        
+
     Returns:
         List of ModuleInfo containing module details
     """
     if root_path is None:
         from dbgpt.configs.model_config import ROOT_PATH
+
         root_path = ROOT_PATH
-        
+
     base_path = Path(root_path) / "packages"
     all_modules = []
-    
+
     # Iterate through all packages
     for pkg_dir in base_path.iterdir():
         if not pkg_dir.is_dir():
             continue
-            
+
         src_dir = pkg_dir / "src"
         if not src_dir.is_dir():
             continue
-            
+
         # Find the base module directory
         try:
             base_module_dir = next(src_dir.iterdir())
             if not base_module_dir.is_dir():
                 continue
-                
+
             # Check if it's a Python module
             if not (base_module_dir / "__init__.py").exists():
                 continue
-            
+
             # Scan first-level submodules (directories)
             for item in base_module_dir.iterdir():
                 # Handle directories with __init__.py
-                if (item.is_dir() and 
-                    not item.name.startswith('__') and 
-                    (item / "__init__.py").exists()):
-                    all_modules.append(ModuleInfo(
-                        base_module=base_module_dir.name,
-                        sub_module=item.name,
-                        full_path=str(item.absolute())
-                    ))
+                if (
+                    item.is_dir()
+                    and not item.name.startswith("__")
+                    and (item / "__init__.py").exists()
+                ):
+                    all_modules.append(
+                        ModuleInfo(
+                            base_module=base_module_dir.name,
+                            sub_module=item.name,
+                            full_path=str(item.absolute()),
+                        )
+                    )
                 # Handle Python files (excluding __init__.py and private files)
-                elif (item.is_file() and 
-                      item.suffix == '.py' and 
-                      not item.name.startswith('__')):
-                    all_modules.append(ModuleInfo(
-                        base_module=base_module_dir.name,
-                        sub_module=item.stem,  # filename without .py
-                        full_path=str(item.absolute())
-                    ))
-            
+                elif (
+                    item.is_file()
+                    and item.suffix == ".py"
+                    and not item.name.startswith("__")
+                ):
+                    all_modules.append(
+                        ModuleInfo(
+                            base_module=base_module_dir.name,
+                            sub_module=item.stem,  # filename without .py
+                            full_path=str(item.absolute()),
+                        )
+                    )
+
         except StopIteration:
             continue
-            
+
     return sorted(all_modules, key=lambda x: (x.base_module, x.sub_module))
+
 
 class ReadPoFileOperator(MapOperator[str, List[str]]):
     def __init__(self, **kwargs):
@@ -311,7 +323,9 @@ class BatchOperator(JoinOperator[str]):
         model_name = ext_dict.get("model_name", self._model_name)
         support_system_role = ext_dict.get("support_system_role", True)
         llm_client = AdaptiveLLMClient(provider=provider, name=model_name)
-        batch_blocks = await self.split_blocks(llm_client, blocks, model_name, max_new_token)
+        batch_blocks = await self.split_blocks(
+            llm_client, blocks, model_name, max_new_token
+        )
         new_blocks = []
         for block in batch_blocks:
             new_blocks.append({"user_input": "".join(block), **ext_dict})
@@ -350,7 +364,11 @@ class BatchOperator(JoinOperator[str]):
         return "\n\n".join(outs)
 
     async def split_blocks(
-        self, llm_client: AdaptiveLLMClient, blocks: List[str], model_nam: str, max_new_token: int
+        self,
+        llm_client: AdaptiveLLMClient,
+        blocks: List[str],
+        model_nam: str,
+        max_new_token: int,
     ) -> List[List[str]]:
         batch_blocks = []
         last_block_end = 0
@@ -377,7 +395,11 @@ class BatchOperator(JoinOperator[str]):
         return batch_blocks
 
     async def bin_search(
-        self, llm_client: AdaptiveLLMClient, blocks: List[str], model_nam: str, max_new_token: int
+        self,
+        llm_client: AdaptiveLLMClient,
+        blocks: List[str],
+        model_nam: str,
+        max_new_token: int,
     ) -> int:
         """Binary search to find the split point."""
         l, r = 0, len(blocks) - 1
@@ -442,7 +464,13 @@ with DAG("translate_po_dag") as dag:
     input_task >> MapOperator(lambda x: x["ext_dict"]) >> batch_task
 
     batch_task >> save_translated_po_file_task
-    input_task >> MapOperator(lambda x: {"file_path": x["file_path"], "override": x["override"]}) >> save_translated_po_file_task
+    (
+        input_task
+        >> MapOperator(
+            lambda x: {"file_path": x["file_path"], "override": x["override"]}
+        )
+        >> save_translated_po_file_task
+    )
 
 
 async def run_translate_po_dag(
@@ -454,10 +482,11 @@ async def run_translate_po_dag(
     parallel_num=10,
     provider: int = "proxy/deepseek",
     model_name: str = "deepseek-chat",
-    override: bool=False,
+    override: bool = False,
     support_system_role: bool = True,
 ):
     from dbgpt.configs.model_config import ROOT_PATH
+
     if "zhipu" in provider:
         support_system_role = False
 
@@ -486,14 +515,15 @@ async def run_translate_po_dag(
         "support_system_role": support_system_role,
     }
     try:
-        result = await task.call({"file_path": full_path, "ext_dict": ext_dict, "override": override})
+        result = await task.call(
+            {"file_path": full_path, "ext_dict": ext_dict, "override": override}
+        )
         return result
     except Exception as e:
         print(f"Error in {module_name}: {e}")
 
 
 if __name__ == "__main__":
-
     from dbgpt.configs.model_config import ROOT_PATH
 
     all_modules = find_modules(ROOT_PATH)
@@ -532,7 +562,9 @@ if __name__ == "__main__":
     model_name = args.model_name
     override = args.override
     # modules = ["app", "core", "model", "rag", "serve", "storage", "util"]
-    modules = str_all_modules if args.modules == "all" else args.modules.strip().split(",")
+    modules = (
+        str_all_modules if args.modules == "all" else args.modules.strip().split(",")
+    )
     max_new_token = args.max_new_token
     parallel_num = args.parallel_num
     langs = lang_map.keys() if args.lang == "all" else args.lang.strip().split(",")
@@ -556,6 +588,6 @@ if __name__ == "__main__":
                     parallel_num,
                     provider,
                     model_name,
-                    override=override
+                    override=override,
                 )
             )

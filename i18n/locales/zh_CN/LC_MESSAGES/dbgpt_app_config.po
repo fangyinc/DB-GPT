@@ -1,0 +1,197 @@
+# Chinese translations for PACKAGE package.
+# Copyright (C) 2025 THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# Automatically generated, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-02-21 18:20+0800\n"
+"PO-Revision-Date: 2025-02-21 18:20+0800\n"
+"Last-Translator: Automatically generated\n"
+"Language-Team: none\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:27
+msgid "Language setting"
+msgstr "语言设置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:34
+msgid "Logging level"
+msgstr "日志级别"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:41
+msgid "API keys"
+msgstr "API 密钥"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:46
+msgid "The key to encrypt the data"
+msgstr "用于加密数据的密钥"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:56
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:189
+msgid "Whether to verify the SSL certificate of the database"
+msgstr "是否验证数据库的 SSL 证书"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:62
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:195
+msgid ""
+"The default thread pool size, If None, use default config of python thread "
+"pool"
+msgstr "默认线程池大小，如果为 None，则使用 Python 线程池的默认配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:69
+msgid "knowledge search top k"
+msgstr "知识搜索前 k"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:73
+msgid "knowledge search top similarity score"
+msgstr "知识搜索最高相似度分数"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:77
+msgid "knowledge search rewrite"
+msgstr "知识搜索重写"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:81
+msgid "knowledge max chunks once load"
+msgstr "知识最大加载块数"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:85
+msgid "knowledge max load thread"
+msgstr "知识最大加载线程数"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:89
+msgid "knowledge rerank top k"
+msgstr "知识重排序前 k"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:99
+msgid "knowledge graph search top k"
+msgstr "知识图搜索前 k"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:103
+msgid "graph community summary enabled"
+msgstr "启用图社区摘要"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:112
+msgid "default vector type"
+msgstr "默认向量类型"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:120
+msgid "Webserver deploy host"
+msgstr "Web 服务器部署主机"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:122
+msgid "Webserver deploy port, default is 5670"
+msgstr "Web 服务器部署端口，默认是 5670"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:125
+msgid "Run Webserver in light mode"
+msgstr "以轻量模式运行 Web 服务器"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:131
+msgid ""
+"The Model controller address to connect. If None, read model controller "
+"address from environment key `MODEL_SERVER`."
+msgstr "要连接的模型控制器地址。如果为 None，则从环境变量 `MODEL_SERVER` 中读取模型控制器地址。"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:142
+msgid "Database connection config, now support SQLite, OceanBase and MySQL"
+msgstr "数据库连接配置，目前支持 SQLite、OceanBase 和 MySQL"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:150
+msgid ""
+"The storage type of model configures, if None, use the default "
+"storage(current database). When you run in light mode, it will not use any "
+"storage."
+msgstr "模型配置的存储类型，如果为 None，则使用默认存储（当前数据库）。在轻量模式下运行时，将不使用任何存储。"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:159
+msgid "Rag Knowledge Parameters"
+msgstr "RAG 知识参数"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:163
+msgid "Graph Rag Parameters"
+msgstr "图 RAG 参数"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:168
+msgid "Tracer config for web server, if None, use global tracer config"
+msgstr "Web 服务器的追踪器配置，如果为 None，则使用全局追踪器配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:175
+msgid "Logging configuration for web server, if None, use global config"
+msgstr "Web 服务器的日志配置，如果为 None，则使用全局配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:183
+msgid "Whether to disable alembic to initialize and upgrade database metadata"
+msgstr "是否禁用 alembic 来初始化和升级数据库元数据"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:204
+msgid ""
+"Whether to enable remote embedding models. If it is True, you need to start "
+"a embedding model through `dbgpt start worker --worker_type text2vec --"
+"model_name xxx --model_path xxx`"
+msgstr "是否启用远程嵌入模型。如果为 True，则需要通过 `dbgpt start worker --worker_type text2vec --model_name xxx --model_path xxx` 启动嵌入模型。"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:214
+msgid ""
+"Whether to enable remote rerank models. If it is True, you need to start a "
+"rerank model through `dbgpt start worker --worker_type text2vec --rerank --"
+"model_name xxx --model_path xxx`"
+msgstr "是否启用远程重排序模型。如果为 True，则需要通过 `dbgpt start worker --worker_type text2vec --rerank --model_name xxx --model_path xxx` 启动重排序模型。"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:222
+msgid "The directories to search awel files, split by `,`"
+msgstr "搜索 AWEL 文件的目录，以 `,` 分隔"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:226
+msgid "Whether to use the new web UI, default is True"
+msgstr "是否使用新的网页用户界面，默认是 True"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:230
+msgid "Model cache configuration"
+msgstr "模型缓存配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:235
+msgid "The max sequence length of the embedding model, default is 512"
+msgstr "嵌入模型的最大序列长度，默认是 512"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:240
+msgid "Storage configuration"
+msgstr "存储配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:248
+msgid "Web service configuration"
+msgstr "网络服务配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:252
+msgid "Model service configuration"
+msgstr "模型服务配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:264
+msgid ""
+"Configuration hooks, which will be executed before the configuration loading"
+msgstr "配置钩子，将在配置加载之前执行"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:273
+msgid "System configuration"
+msgstr "系统配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:280
+msgid "Model deployment configuration"
+msgstr "模型部署配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:286
+msgid "Serve configuration"
+msgstr "服务配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:292
+msgid "Global tracer configuration"
+msgstr "全局追踪器配置"
+
+#: ../packages/dbgpt-app/src/dbgpt_app/config.py:298
+msgid "Logging configuration"
+msgstr "日志配置"
