@@ -1,13 +1,13 @@
-import { apiInterceptors, getDbList, getDbSupportType, postDbDelete } from '@/client/api';
+import { apiInterceptors, getDbList, getDbSupportType, postDbDelete, postDbRefresh } from '@/client/api';
 import GPTCard from '@/components/common/gpt-card';
 import MuiLoading from '@/components/common/loading';
 import FormDialog from '@/components/database/form-dialog';
 import ConstructLayout from '@/new-components/layout/Construct';
 import { DBOption, DBType, DbListResponse, DbSupportTypeResponse } from '@/types/db';
 import { dbMapper } from '@/utils';
-import { DeleteFilled, EditFilled, PlusOutlined } from '@ant-design/icons';
+import { DeleteFilled, EditFilled, PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import { useAsyncEffect } from 'ahooks';
-import { Badge, Button, Card, Drawer, Empty, Modal, message } from 'antd';
+import { Badge, Button, Card, Drawer, Empty, Modal, Spin, message } from 'antd';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -16,7 +16,7 @@ type DBItem = DbListResponse[0];
 export function isFileDb(dbTypeList: DBOption[], dbType: DBType) {
   return dbTypeList.find(item => item.value === dbType)?.isFileDb;
 }
-
+let getFromRenderData: any = [];
 function Database() {
   // const { setCurrentDialogInfo } = useContext(ChatContext);  // unused
   // const router = useRouter(); // unused
@@ -27,8 +27,10 @@ function Database() {
   const [loading, setLoading] = useState(false);
   const [modal, setModal] = useState<{
     open: boolean;
-    info?: DBItem;
+    info?: string;
     dbType?: DBType;
+    dbTypeData?: any[];
+    description?: string;
   }>({ open: false });
   const [draw, setDraw] = useState<{
     open: boolean;
@@ -36,10 +38,11 @@ function Database() {
     name?: string;
     type?: DBType;
   }>({ open: false });
+  const [refreshLoading, setRefreshLoading] = useState(false);
 
   const getDbSupportList = async () => {
     const [, data] = await apiInterceptors(getDbSupportType());
-    setDbSupportList(data ?? []);
+    setDbSupportList(data?.types ?? []);
   };
 
   const refreshDbList = async () => {
@@ -51,9 +54,8 @@ function Database() {
 
   const dbTypeList = useMemo(() => {
     const supportDbList = dbSupportList.map(item => {
-      const { db_type, is_file_db } = item;
-
-      return { ...dbMapper[db_type], value: db_type, isFileDb: is_file_db };
+      const db_type = item?.name;
+      return { ...dbMapper[db_type], value: db_type, isFileDb: true, parameters: item.parameters };
     }) as DBOption[];
     const unSupportDbList = Object.keys(dbMapper)
       .filter(item => !supportDbList.some(db => db.value === item))
@@ -66,24 +68,30 @@ function Database() {
   }, [dbSupportList]);
 
   const onModify = (item: DBItem) => {
-    setModal({ open: true, info: item });
+    for (let index = 0; index < getFromRenderData.length; index++) {
+      const element = getFromRenderData[index];
+      if (item.params[element.param_name]) {
+        element.default_value = item.params[element.param_name];
+      }
+    }
+    setModal({ open: true, info: item.id, dbType: item.type, description: item.description });
   };
 
   const onDelete = (item: DBItem) => {
     Modal.confirm({
       title: 'Tips',
-      content: `Do you Want to delete the ${item.db_name}?`,
+      content: `Do you Want to delete the database connection?`,
       onOk() {
         return new Promise<void>((resolve, reject) => {
-          handleDelete(item.db_name, resolve, reject);
+          handleDelete(item.id, resolve, reject);
         });
       },
     });
   };
 
-  const handleDelete = async (dbName: string, resolve: () => void, reject: () => void) => {
+  const handleDelete = async (id: string, resolve: () => void, reject: () => void) => {
     try {
-      const [err] = await apiInterceptors(postDbDelete(dbName));
+      const [err] = await apiInterceptors(postDbDelete(id));
       if (err) {
         message.error(err.message);
         reject();
@@ -100,7 +108,7 @@ function Database() {
   const dbListByType = useMemo(() => {
     const mapper = dbTypeList.reduce(
       (acc, item) => {
-        acc[item.value] = dbList.filter(dbConn => dbConn.db_type === item.value);
+        acc[item.value] = dbList.filter(dbConn => dbConn?.type.toLowerCase() === item.value.toLowerCase());
         return acc;
       },
       {} as Record<DBType, DbListResponse>,
@@ -114,7 +122,9 @@ function Database() {
   }, []);
 
   const handleDbTypeClick = (info: DBOption) => {
-    const dbItems = dbList.filter(item => item.db_type === info.value);
+    const dbItems = dbList.filter(item => item.type === info.value);
+    getFromRenderData = info?.parameters;
+
     setDraw({
       open: true,
       dbList: dbItems,
@@ -123,53 +133,36 @@ function Database() {
     });
   };
 
-  // TODO: unused function call
-  // const handleChat = async (item: IChatDbSchema) => {
-  //   const [, data] = await apiInterceptors(
-  //     newDialogue({
-  //       chat_mode: 'chat_with_db_execute',
-  //     }),
-  //   );
-  //   // 知识库对话都默认私有知识库应用下
-  //   if (data?.conv_uid) {
-  //     setCurrentDialogInfo?.({
-  //       chat_scene: data.chat_mode,
-  //       app_code: data.chat_mode,
-  //     });
-  //     localStorage.setItem(
-  //       'cur_dialog_info',
-  //       JSON.stringify({
-  //         chat_scene: data.chat_mode,
-  //         app_code: data.chat_mode,
-  //       }),
-  //     );
-  //     router.push(`/chat?scene=chat_with_db_execute&id=${data?.conv_uid}&db_name=${item.db_name}`);
-  //   }
-  // };
+  const onRefresh = async (item: DBItem) => {
+    setRefreshLoading(true);
+    const [, res] = await apiInterceptors(postDbRefresh({ id: item.id }));
+    if (res) message.success(t('refreshSuccess'));
+    setRefreshLoading(false);
+  };
+
+  const getFileName = (path: string) => {
+    if (!path) return '';
+    // Handle Windows and Unix style paths
+    const parts = path.split(/[/\\]/);
+    return parts[parts.length - 1];
+  };
 
   return (
     <ConstructLayout>
       <div className='relative min-h-full overflow-y-auto px-6 max-h-[90vh]'>
         <MuiLoading visible={loading} />
         <div className='flex justify-between items-center mb-6'>
-          <div className='flex items-center gap-4'>
-            {/* <Input
-              variant="filled"
-              prefix={<SearchOutlined />}
-              placeholder={t('please_enter_the_keywords')}
-              // onChange={onSearch}
-              // onPressEnter={onSearch}
-              allowClear
-              className="w-[230px] h-[40px] border-1 border-white backdrop-filter backdrop-blur-lg bg-white bg-opacity-30 dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60"
-            /> */}
-          </div>
+          <div className='flex items-center gap-4'></div>
 
           <div className='flex items-center gap-4'>
             <Button
               className='border-none text-white bg-button-gradient'
               icon={<PlusOutlined />}
               onClick={() => {
-                setModal({ open: true });
+                console.log(dbList);
+                console.log(dbTypeList);
+
+                setModal({ open: true, dbTypeData: dbTypeList });
               }}
             >
               {t('Add_Datasource')}
@@ -193,61 +186,18 @@ function Database() {
                   }}
                 />
               </Badge>
-              // <BlurredCard
-              //   description={item.db_path ?? ''}
-              //   name={item.db_name}
-              //   key={item.db_name}
-              //   logo={targetDBType?.icon}
-              //   RightTop={
-              //     <InnerDropdown
-              //       menu={{
-              //         items: [
-              //           {
-              //             key: 'del',
-              //             label: (
-              //               <span
-              //                 className="text-red-400"
-              //                 onClick={() => {
-              //                   onDelete(item);
-              //                 }}
-              //               >
-              //                 {t('Delete_Btn')}
-              //               </span>
-              //             ),
-              //           },
-              //         ],
-              //       }}
-              //     />
-              //   }
-              //   rightTopHover={false}
-              //   Tags={
-              //     <div>
-              //       <Tag>{item.db_type}</Tag>
-              //     </div>
-              //   }
-              //   RightBottom={
-              //     <ChatButton
-              //       text={t('start_chat')}
-              //       onClick={() => {
-              //         handleChat(item);
-              //       }}
-              //     />
-              //   }
-              //   onClick={() => {
-              //     // if (targetDBType?.disabled) return;
-              //     // handleDbTypeClick(targetDBType);
-              //     onModify(item);
-              //   }}
-              // />
             );
           })}
         </div>
         <FormDialog
           open={modal.open}
           dbTypeList={dbTypeList}
+          getFromRenderData={getFromRenderData}
+          description={modal.description}
           choiceDBType={modal.dbType}
           editValue={modal.info}
-          dbNames={dbList.map(item => item.db_name)}
+          dbTypeData={modal.dbTypeData}
+          dbNames={dbList.map(item => item.params.database)}
           onSuccess={() => {
             setModal({ open: false });
             refreshDbList();
@@ -265,7 +215,7 @@ function Database() {
           open={draw.open}
         >
           {draw.type && dbListByType[draw.type] && dbListByType[draw.type].length ? (
-            <>
+            <Spin spinning={refreshLoading}>
               <Button
                 type='primary'
                 className='mb-4 flex items-center'
@@ -278,10 +228,17 @@ function Database() {
               </Button>
               {dbListByType[draw.type].map(item => (
                 <Card
-                  key={item.db_name}
-                  title={item.db_name}
+                  key={item.params?.database || item.params?.path || ''}
+                  title={item.params?.database || getFileName(item.params?.path) || ''}
                   extra={
                     <>
+                      <RedoOutlined
+                        className='mr-2'
+                        style={{ color: 'gray' }}
+                        onClick={() => {
+                          onRefresh(item);
+                        }}
+                      />
                       <EditFilled
                         className='mr-2'
                         style={{ color: '#1b7eff' }}
@@ -299,19 +256,22 @@ function Database() {
                   }
                   className='mb-4'
                 >
-                  {item.db_path ? (
-                    <p>path: {item.db_path}</p>
-                  ) : (
-                    <>
-                      <p>host: {item.db_host}</p>
-                      <p>username: {item.db_user}</p>
-                      <p>port: {item.db_port}</p>
-                    </>
-                  )}
-                  <p>remark: {item.comment}</p>
+                  <>
+                    {['host', 'port', 'path', 'user', 'database', 'schema']
+                      // Just handle these keys
+                      .filter(key => Object.prototype.hasOwnProperty.call(item.params, key))
+                      .map(key => (
+                        <p key={key}>
+                          {key}: {key === 'path' ? getFileName(item.params[key]) : item.params[key]}
+                        </p>
+                      ))}
+                  </>
+                  <p>
+                    {t('description')}: {item.description}
+                  </p>
                 </Card>
               ))}
-            </>
+            </Spin>
           ) : (
             <Empty image={Empty.PRESENTED_IMAGE_DEFAULT}>
               <Button

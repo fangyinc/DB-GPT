@@ -1,17 +1,17 @@
 """Agents: auto plan agents example?
 
-    Examples:
-     
-        Execute the following command in the terminal:
-        Set env params.
-        .. code-block:: shell
+Examples:
 
-            export OPENAI_API_KEY=sk-xx
-            export OPENAI_API_BASE=https://xx:80/v1
+    Execute the following command in the terminal:
+    Set env params.
+    .. code-block:: shell
 
-        run example.
-        ..code-block:: shell
-            python examples/agents/auto_plan_agent_dialogue_example.py 
+        export SILICONFLOW_API_KEY=sk-xx
+        export SILICONFLOW_API_BASE=https://xx:80/v1
+
+    run example.
+    ..code-block:: shell
+        python examples/agents/auto_plan_agent_dialogue_example.py
 """
 
 import asyncio
@@ -33,13 +33,14 @@ initialize_tracer(
 
 
 async def main():
-    from dbgpt.model.proxy import OpenAILLMClient
+    from dbgpt.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
     agent_memory = AgentMemory()
-    from dbgpt.model.proxy.llms.tongyi import TongyiLLMClient
 
-    llm_client = TongyiLLMClient(
-        model_alias="qwen2-72b-instruct",
+    llm_client = SiliconFlowLLMClient(
+        model_alias=os.getenv(
+            "SILICONFLOW_MODEL_VERSION", "Qwen/Qwen2.5-Coder-32B-Instruct"
+        ),
     )
 
     context: AgentContext = AgentContext(

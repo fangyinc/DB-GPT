@@ -1,17 +1,17 @@
 """Agents: auto plan agents example?
 
-    Examples:
+Examples:
 
-        Execute the following command in the terminal:
-        Set env params.
-        .. code-block:: shell
+    Execute the following command in the terminal:
+    Set env params.
+    .. code-block:: shell
 
-            export OPENAI_API_KEY=sk-xx
-            export OPENAI_API_BASE=https://xx:80/v1
+        export SILICONFLOW_API_KEY=sk-xx
+        export SILICONFLOW_API_BASE=https://xx:80/v1
 
-        run example.
-        ..code-block:: shell
-            python examples/agents/awel_layout_agents_chat_examples.py
+    run example.
+    ..code-block:: shell
+        python examples/agents/awel_layout_agents_chat_examples.py
 """
 
 import asyncio
@@ -34,18 +34,20 @@ initialize_tracer("/tmp/agent_trace.jsonl", create_system_app=True)
 
 
 async def main():
-    from dbgpt.model.proxy import OpenAILLMClient
-
     agent_memory = AgentMemory()
     agent_memory.gpts_memory.init(conv_id="test456")
     try:
-        from dbgpt.model.proxy.llms.tongyi import TongyiLLMClient
+        from dbgpt.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
-        llm_client = TongyiLLMClient(
-            model_alias="qwen2-72b-instruct",
+        llm_client = SiliconFlowLLMClient(
+            model_alias=os.getenv(
+                "SILICONFLOW_MODEL_VERSION", "Qwen/Qwen2.5-Coder-32B-Instruct"
+            ),
         )
 
-        context: AgentContext = AgentContext(conv_id="test456", gpts_app_name="信息析助手")
+        context: AgentContext = AgentContext(
+            conv_id="test456", gpts_app_name="信息析助手"
+        )
 
         tools = ToolPack([baidu_search])
         tool_engineer = (

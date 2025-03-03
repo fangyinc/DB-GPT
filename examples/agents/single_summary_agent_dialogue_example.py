@@ -1,32 +1,39 @@
 """Agents: single agents about CodeAssistantAgent?
 
-    Examples:
-     
-        Execute the following command in the terminal:
-        Set env params.
-        .. code-block:: shell
+Examples:
 
-            export OPENAI_API_KEY=sk-xx
-            export OPENAI_API_BASE=https://xx:80/v1
+    Execute the following command in the terminal:
+    Set env params.
+    .. code-block:: shell
 
-        run example.
-        ..code-block:: shell
-            python examples/agents/single_summary_agent_dialogue_example.py
+        export OPENAI_API_KEY=sk-xx
+        export OPENAI_API_BASE=https://xx:80/v1
+
+    run example.
+    ..code-block:: shell
+        python examples/agents/single_summary_agent_dialogue_example.py
 """
 
 import asyncio
+import os
 
 from dbgpt.agent import AgentContext, AgentMemory, LLMConfig, UserProxyAgent
 from dbgpt.agent.expand.summary_assistant_agent import SummaryAssistantAgent
 
 
 async def summary_example_with_success():
-    from dbgpt.model.proxy import OpenAILLMClient
+    from dbgpt.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
-    llm_client = OpenAILLMClient(model_alias="gpt-3.5-turbo")
+    llm_client = SiliconFlowLLMClient(
+        model_alias=os.getenv(
+            "SILICONFLOW_MODEL_VERSION", "Qwen/Qwen2.5-Coder-32B-Instruct"
+        ),
+    )
     context: AgentContext = AgentContext(conv_id="summarize")
 
     agent_memory = AgentMemory()
+    agent_memory.gpts_memory.init(conv_id="summarize")
+
     summarizer = (
         await SummaryAssistantAgent()
         .bind(context)
@@ -71,16 +78,22 @@ async def summary_example_with_success():
     )
 
     # dbgpt-vis message infos
-    print(await agent_memory.gpts_memory.one_chat_completions("summarize"))
+    print(await agent_memory.gpts_memory.app_link_chat_message("summarize"))
 
 
 async def summary_example_with_faliure():
-    from dbgpt.model.proxy import OpenAILLMClient
+    from dbgpt.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
-    llm_client = OpenAILLMClient(model_alias="gpt-3.5-turbo")
+    llm_client = SiliconFlowLLMClient(
+        model_alias=os.getenv(
+            "SILICONFLOW_MODEL_VERSION", "Qwen/Qwen2.5-Coder-32B-Instruct"
+        ),
+    )
     context: AgentContext = AgentContext(conv_id="summarize")
 
     agent_memory = AgentMemory()
+    agent_memory.gpts_memory.init(conv_id="summarize")
+
     summarizer = (
         await SummaryAssistantAgent()
         .bind(context)
@@ -92,7 +105,6 @@ async def summary_example_with_faliure():
     user_proxy = await UserProxyAgent().bind(agent_memory).bind(context).build()
 
     # Test the failure example
-
     await user_proxy.initiate_chat(
         recipient=summarizer,
         reviewer=user_proxy,
@@ -110,7 +122,7 @@ async def summary_example_with_faliure():
             """,
     )
 
-    print(await agent_memory.gpts_memory.one_chat_completions("summarize"))
+    print(await agent_memory.gpts_memory.app_link_chat_message("summarize"))
 
 
 if __name__ == "__main__":

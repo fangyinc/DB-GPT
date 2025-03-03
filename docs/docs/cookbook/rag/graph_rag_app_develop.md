@@ -10,22 +10,35 @@ You can refer to the python example file `DB-GPT/examples/rag/graph_rag_example.
 First, you need to install the `dbgpt` library.
 
 ```bash
-pip install "dbgpt[graph_rag]>=0.6.1"
+uv sync --all-packages --frozen \
+--extra "proxy_openai" \
+--extra "rag" \
+--extra "storage_chromadb" \
+--extra "dbgpts"
+--extra "graph_rag"
 ````
 
 ### Prepare Graph Database
 
 To store the knowledge in graph, we need an graph database, [TuGraph](https://github.com/TuGraph-family/tugraph-db) is the first graph database supported by DB-GPT.
 
-Visit github repository of TuGraph to view [Quick Start](https://tugraph-db.readthedocs.io/zh-cn/latest/3.quick-start/1.preparation.html#id5) document, follow the instructions to pull the TuGraph database docker image (latest / version >= 4.5.0) and launch it.
+Visit github repository of TuGraph to view [Quick Start](https://tugraph-db.readthedocs.io/zh-cn/latest/3.quick-start/1.preparation.html#id5) document, follow the instructions to pull the TuGraph database docker image (latest / version >= 4.5.1) and launch it.
 
 ```
-docker pull tugraph/tugraph-runtime-centos7:latest
+docker pull tugraph/tugraph-runtime-centos7:4.5.1
 docker run -d -p 7070:7070  -p 7687:7687 -p 9090:9090 --name tugraph_demo tugraph/tugraph-runtime-centos7:latest lgraph_server -d run --enable_plugin true
 ```
 
 The default port for the bolt protocol is `7687`.
 
+> **Download Tips:**
+> 
+> There is also a corresponding version of the TuGraph Docker image package on OSS. You can also directly download and import it.
+> 
+> ```
+> wget 'https://tugraph-web.oss-cn-beijing.aliyuncs.com/tugraph/tugraph-4.5.1/tugraph-runtime-centos7-4.5.1.tar' -O tugraph-runtime-centos7-4.5.1.tar
+> docker load -i tugraph-runtime-centos7-4.5.1.tar
+> ```
 
 
 ### Prepare LLM
@@ -44,11 +57,7 @@ import TabItem from '@theme/TabItem';
   ]}>
   <TabItem value="openai">
 
-First, you should install the `openai` library. 
 
-```bash
-pip install openai
-```
 Then set your API key in the environment `OPENAI_API_KEY`.
 
 ```python
@@ -62,19 +71,9 @@ llm_client = OpenAILLMClient()
 
 You should have a YI account and get the API key from the YI official website.
 
-First, you should install the `openai` library.
-
-```bash
-pip install openai
-```
 
 Then set your API key in the environment variable `YI_API_KEY`.
 
-```python
-from dbgpt.model.proxy import YiLLMClient
-
-llm_client = YiLLMClient()
-```
   </TabItem>
 
   <TabItem value="model_service">
@@ -161,9 +160,9 @@ import os
 
 from dbgpt.configs.model_config import ROOT_PATH
 from dbgpt.core import Chunk, HumanPromptTemplate, ModelMessage, ModelRequest
-from dbgpt.rag import ChunkParameters
-from dbgpt.rag.assembler import EmbeddingAssembler
-from dbgpt.rag.knowledge import KnowledgeFactory
+from dbgpt_ext.rag import ChunkParameters
+from dbgpt_ext.rag.assembler import EmbeddingAssembler
+from dbgpt_ext.rag.knowledge import KnowledgeFactory
 from dbgpt.rag.retriever import RetrieverStrategy
 
 async def test_community_graph_rag():
@@ -360,7 +359,7 @@ DB-GPT社区与TuGraph社区的比较
   总体而言，DB-GPT社区和TuGraph社区在社区贡献、生态系统和开发者参与等方面各具特色。DB-GPT社区更侧重于AI应用的多样性和组织间的合作，而TuGraph社区则专注于图数据的高效管理和分析。两者的共同点在于都强调了开源和社区合作的重要性，推动了各自领域的技术进步和应用发展。
 ```
 
-### Latest Updates
+### Retrieval Of Document Structure
 
 In version 0.6.1 of DB-GPT, we have added a new feature:
 - Retrieval of triplets with the **retrieval of document structure**
@@ -390,3 +389,123 @@ We decompose standard format files (currently best support for Markdown files) i
 What is the next?
 
 We aim to construct a more complex Graph that covers more comprehensive information to support more sophisticated retrieval algorithms in our GraphRAG.
+
+
+### Similarity Search in GraphRAG:
+
+In the latest version of DB-GPT, we have implemented a new feature:
+
+- **Similarity search** for GraphRAG retrieval
+
+#### How to use?
+
+Use TuGraph 4.5.1 and above.
+
+Set the variables below in the `.env` file to enable similarity search in DB-GPT.
+
+```
+SIMILARITY_SEARCH_ENABLED=True # enable the similarity search for entities and chunks
+KNOWLEDGE_GRAPH_EMBEDDING_BATCH_SIZE=20 # the batch size of embedding from the text
+KNOWLEDGE_GRAPH_SIMILARITY_SEARCH_TOP_SIZE=5 # set the topk of the vector similarity search
+KNOWLEDGE_GRAPH_SIMILARITY_SEARCH_RECALL_SCORE=0.3 # set the reacall score of the vector similarity search
+```
+
+Additionally, you need to choose an embedding model in the `.env` file
+
+```
+## Openai embedding model, See dbgpt/model/parameter.py
+# EMBEDDING_MODEL=proxy_openai
+# proxy_openai_proxy_server_url=https://api.openai.com/v1
+# proxy_openai_proxy_api_key={your-openai-sk}
+# proxy_openai_proxy_backend=text-embedding-ada-002
+
+
+## qwen embedding model, See dbgpt/model/parameter.py
+# EMBEDDING_MODEL=proxy_tongyi
+# proxy_tongyi_proxy_backend=text-embedding-v1
+# proxy_tongyi_proxy_api_key={your-api-key}
+
+## qianfan embedding model, See dbgpt/model/parameter.py
+#EMBEDDING_MODEL=proxy_qianfan
+#proxy_qianfan_proxy_backend=bge-large-zh
+#proxy_qianfan_proxy_api_key={your-api-key}
+#proxy_qianfan_proxy_api_secret={your-secret-key}
+```
+
+#### Why to use?
+
+TuGraph now offers comprehensive vector capabilities, including vector storage, indexing, and similarity search functionalities. These features enable GraphRAG to achieve superior retrieval performance compared to traditional keyword-based approaches.
+
+	
+To leverage these capabilities, we've introduced an `_embedding` field in both entity and chunk objects to store embedding data, enabling similarity search to identify the most relevant results for a given query.
+
+#### Comparison of Similarity Search Results
+
+Given identical documents and questions in the same environment, the results of the keyword mode are as follows:
+
+<p align="left">
+  <img src={'/img/chat_knowledge/graph_rag/comparison_result_for_keywords.png'} width="1000px"/>
+</p>
+
+The results of the similarity search mode are as follows:
+
+<p align="left">
+  <img src={'/img/chat_knowledge/graph_rag/comparison_result_for_similarity_search.png'} width="1000px"/>
+</p>
+
+Compared to the keyword search method, the similarity search method can cover more comprehensive information. For instance, when dealing with the term 清北大学 in the keyword search mode, it is hard to extract useful keywords. However, the similarity search mode can identify similar words, enabling it to retrieve relevant information related to Tsinghua University and thus include it in the search results.
+
+This implies that in scenarios where queries are imprecise, the similarity search approach can retrieve more pertinent information compared to keyword-based search patterns.
+
+Furthermore, as shown in the following figure, compared to RAG, GraphRAG with similarity search can obtain more relevant information, ensuring richer answers.
+
+<p align="left">
+  <img src={'/img/chat_knowledge/graph_rag/comparison_with_rag.png'} width="1000px"/>
+</p>
+
+In conclusion, enabling similarity search in GraphRAG significantly expands the scope and relevance of its responses.
+
+### Text2GQL Search in GraphRAG:
+
+In the latest version of DB-GPT, we have implemented a new feature:
+
+- **Text2GQL search** for GraphRAG retrieval
+
+#### How to use?
+
+Set the variables below in the `.env` file to enable text2gql search in DB-GPT.
+
+```
+TEXT2GQL_SEARCH_ENABLED=True # enable the text2gql search for entities and relations.
+```
+
+#### Why to use?
+
+Keywords or vectors based retrieval will generate large multihop subgraph for LLM to summarize information, but this method is costive when questions asked by users can be simply expressed by a single graph query. Text2GQL search can effectively reduce the cost of graph search and increase the accuracy of the retrieved subgraph under above situation.
+
+In the future, we hope to further improve the ability of Text2GQL translation to compete with keywords or vectors based retrieval under complicated questions with both prompt based method and finetune based method.
+
+
+#### Comparison of Text2GQL Search Results
+
+Given identical documents and questions in the same environment, the results of the keyword mode are as follows:
+
+<p align="left">
+  <img src={'/img/chat_knowledge/graph_rag/comparison_result_for_keywords_search.png'} width="1000px"/>
+</p>
+
+The results of the text2gql search mode are as follows:
+
+<p align="left">
+  <img src={'/img/chat_knowledge/graph_rag/comparison_result_for_text2gql_search.png'} width="1000px"/>
+</p>
+
+Compared to the keyword search method, the text2gql search method can generate an accurate graph query laguage to query the entity of DB-GPT in knowledge graph, which is
+
+```cypher
+MATCH (n) WHERE n.id = 'DB-GPT' RETURN n LIMIT 10
+```
+
+This implies that in scenarios where questions can be expressed by a single graph query, the text2gql search approach can retrieve more accurate information with lower cost.
+
+In conclusion, enabling text2gql search in GraphRAG significantly increase the accuracy and lower the cost when questions are concise and clear.

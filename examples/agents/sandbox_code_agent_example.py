@@ -13,6 +13,7 @@ preventing access to the internet and other external resources.
 
 import asyncio
 import logging
+import os
 from typing import Optional, Tuple
 
 from dbgpt.agent import (
@@ -116,7 +117,6 @@ class SandboxCodeAction(Action[None]):
     async def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
         from lyric import (
-            PyTaskFilePerms,
             PyTaskFsConfig,
             PyTaskMemoryConfig,
             PyTaskResourceConfig,
@@ -216,7 +216,7 @@ class SandboxCodeAssistantAgent(ConversableAgent):
             "problem, revisit your assumptions, gather additional information you "
             "need from historical conversation records, and consider trying a "
             "different approach.",
-            "Unless necessary, give priority to solving problems with python " "code.",
+            "Unless necessary, give priority to solving problems with python code.",
             "The output content of the 'print' function will be passed to other "
             "LLM agents as dependent data. Please control the length of the "
             "output content of the 'print' function. The 'print' function only "
@@ -270,11 +270,28 @@ class SandboxCodeAssistantAgent(ConversableAgent):
 
 
 async def main():
-    from dbgpt.model.proxy import OpenAILLMClient
+    from dbgpt.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
-    llm_client = OpenAILLMClient(model_alias="gpt-4o-mini")
+    llm_client = SiliconFlowLLMClient(
+        model_alias=os.getenv(
+            "SILICONFLOW_MODEL_VERSION", "Qwen/Qwen2.5-Coder-32B-Instruct"
+        ),
+    )
     context: AgentContext = AgentContext(conv_id="test123")
-    agent_memory = AgentMemory(HybridMemory[AgentMemoryFragment].from_chroma())
+
+    # TODO Embedding and Rerank model refactor
+    from dbgpt.rag.embedding import OpenAPIEmbeddings
+
+    silicon_embeddings = OpenAPIEmbeddings(
+        api_url=os.getenv("SILICONFLOW_API_BASE") + "/embeddings",
+        api_key=os.getenv("SILICONFLOW_API_KEY"),
+        model_name="BAAI/bge-large-zh-v1.5",
+    )
+    agent_memory = AgentMemory(
+        HybridMemory[AgentMemoryFragment].from_chroma(
+            embeddings=silicon_embeddings,
+        )
+    )
     agent_memory.gpts_memory.init("test123")
 
     coder = (
